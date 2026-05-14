@@ -150,7 +150,7 @@ function LiftBuilder({ lift, color, day, exerciseHistory, dayExercises = [], las
 
   return (
     <div style={{ background: '#0f0f0f', border: `1.5px solid ${color}44`, borderRadius: 14, padding: '18px 16px' }}>
-      <div style={{ fontSize: 10, letterSpacing: 2, color, marginBottom: 14 }}>LIFT</div>
+      <div style={{ fontSize: 11, letterSpacing: 2, color, marginBottom: 14, fontWeight: 600 }}>LIFT</div>
 
       {dayExercises.length > 0 && (
         <select
@@ -190,12 +190,12 @@ function LiftBuilder({ lift, color, day, exerciseHistory, dayExercises = [], las
 
       {prev && (
         <div style={{ background: '#0a0a0a', border: `1px solid ${color}22`, borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
-          <div style={{ fontSize: 9, letterSpacing: 2, color: '#444', marginBottom: 6 }}>
+          <div style={{ fontSize: 11, letterSpacing: 2, color: '#9a9a9a', marginBottom: 8, fontWeight: 600 }}>
             LAST TIME · {fmt(prev.session.date)} · {prev.session.day}
           </div>
           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
             {prev.lift.sets.map((s, j) => (
-              <span key={j} style={{ background: color + '18', border: `1px solid ${color}33`, borderRadius: 6, padding: '3px 9px', fontSize: 12, color }}>
+              <span key={j} style={{ background: color + '18', border: `1px solid ${color}33`, borderRadius: 6, padding: '5px 11px', fontSize: 13, color }}>
                 S{j + 1}: {fmtW(s.weight)}×{s.reps}
               </span>
             ))}
@@ -203,10 +203,10 @@ function LiftBuilder({ lift, color, day, exerciseHistory, dayExercises = [], las
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '52px 1fr 1fr auto', gap: 6, marginBottom: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '52px 1fr 1fr auto', gap: 6, marginBottom: 8 }}>
         <div />
-        <div style={{ fontSize: 9, color: '#3a3a3a', textAlign: 'center', letterSpacing: 1 }}>WEIGHT (lbs)</div>
-        <div style={{ fontSize: 9, color: '#3a3a3a', textAlign: 'center', letterSpacing: 1 }}>REPS</div>
+        <div style={{ fontSize: 11, color: '#888', textAlign: 'center', letterSpacing: 1, fontWeight: 600 }}>WEIGHT (lbs)</div>
+        <div style={{ fontSize: 11, color: '#888', textAlign: 'center', letterSpacing: 1, fontWeight: 600 }}>REPS</div>
         <div />
       </div>
 
@@ -239,7 +239,7 @@ function LiftBuilder({ lift, color, day, exerciseHistory, dayExercises = [], las
         </div>
       ))}
 
-      <button onClick={addSet} style={{ width: '100%', background: 'none', border: '1px dashed #2a2a2a', color: '#444', padding: '11px', borderRadius: 10, fontSize: 12, letterSpacing: 2, cursor: 'pointer', marginBottom: 14, marginTop: 4, fontFamily: "'DM Mono', monospace" }}>+ ADD SET</button>
+      <button onClick={addSet} style={{ width: '100%', background: 'none', border: '1px dashed #2a2a2a', color: '#7a7a7a', padding: '11px', borderRadius: 10, fontSize: 12, letterSpacing: 2, cursor: 'pointer', marginBottom: 14, marginTop: 4, fontFamily: "'DM Mono', monospace" }}>+ ADD SET</button>
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={onCancel} style={{ flex: 1, background: 'none', border: '1px solid #222', color: '#555', padding: '14px', borderRadius: 10, fontSize: 13, cursor: 'pointer', fontFamily: "'DM Mono', monospace" }}>CANCEL</button>
         <button onClick={go} style={{ flex: 2, background: color, border: 'none', color: '#000', padding: '14px', borderRadius: 10, fontSize: 13, letterSpacing: 2, cursor: 'pointer', fontWeight: 700, fontFamily: "'DM Mono', monospace" }}>{confirmLabel}</button>
@@ -263,17 +263,17 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
         <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', fontSize: 26, cursor: 'pointer' }}>‹</button>
         <div>
           <div style={{ fontFamily: "'Bebas Neue'", fontSize: 28, letterSpacing: 4, color: '#fff', lineHeight: 1 }}>EDIT SESSION</div>
-          <div style={{ fontSize: 10, color: '#3a3a3a', letterSpacing: 2, marginTop: 2 }}>{fmtF(session.date)} — {session.day}</div>
+          <div style={{ fontSize: 10, color: '#666', letterSpacing: 2, marginTop: 2 }}>{fmtF(session.date)} — {session.day}</div>
         </div>
       </div>
       <div style={{ padding: '16px' }}>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...IS, color: '#888', marginBottom: 12 }} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 20 }}>
           {SPLIT_DAYS.map(d => (
-            <button key={d} onClick={() => setDay(d)} style={{ background: day === d ? COLORS[d] + '20' : '#111', border: `1.5px solid ${day === d ? COLORS[d] + '88' : '#1e1e1e'}`, color: day === d ? COLORS[d] : '#3a3a3a', padding: '12px 6px', borderRadius: 10, fontSize: 12, cursor: 'pointer', fontFamily: "'DM Mono', monospace" }}>{d}</button>
+            <button key={d} onClick={() => setDay(d)} style={{ background: day === d ? COLORS[d] + '20' : '#111', border: `1.5px solid ${day === d ? COLORS[d] + '88' : '#1e1e1e'}`, color: day === d ? COLORS[d] : '#666', padding: '15px 6px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Mono', monospace" }}>{d}</button>
           ))}
         </div>
-        <div style={{ fontSize: 10, letterSpacing: 2, color: '#3a3a3a', marginBottom: 10 }}>LIFTS</div>
+        <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 10 }}>LIFTS</div>
         {lifts.map((l, i) => (
           <div key={i} style={{ marginBottom: 10 }}>
             {editIdx === i
@@ -284,12 +284,12 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
                   <div style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span style={{ fontSize: 14, color: '#ccc' }}>{l.exercise}</span>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => setEditIdx(i)} style={{ background: '#1e1e1e', border: 'none', color: '#888', padding: '8px 14px', borderRadius: 7, fontSize: 12, cursor: 'pointer', fontFamily: "'DM Mono', monospace" }}>EDIT</button>
-                      <button onClick={() => setLifts(p => p.filter((_, j) => j !== i))} style={{ background: '#1e1e1e', border: 'none', color: '#555', padding: '8px 14px', borderRadius: 7, fontSize: 12, cursor: 'pointer', fontFamily: "'DM Mono', monospace" }}>✕</button>
+                      <button onClick={() => setEditIdx(i)} style={{ background: '#1e1e1e', border: 'none', color: '#888', padding: '11px 18px', borderRadius: 7, fontSize: 12, cursor: 'pointer', fontFamily: "'DM Mono', monospace" }}>EDIT</button>
+                      <button onClick={() => setLifts(p => p.filter((_, j) => j !== i))} style={{ background: '#1e1e1e', border: 'none', color: '#555', padding: '11px 18px', borderRadius: 7, fontSize: 12, cursor: 'pointer', fontFamily: "'DM Mono', monospace" }}>✕</button>
                     </div>
                   </div>
                   <div style={{ padding: '0 14px 12px', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                    {l.sets.map((s, j) => <span key={j} style={{ background: color + '18', border: `1px solid ${color}33`, borderRadius: 6, padding: '3px 9px', fontSize: 12, color }}>S{j + 1}:{fmtW(s.weight)}×{s.reps}</span>)}
+                    {l.sets.map((s, j) => <span key={j} style={{ background: color + '18', border: `1px solid ${color}33`, borderRadius: 6, padding: '5px 11px', fontSize: 13, color }}>S{j + 1}:{fmtW(s.weight)}×{s.reps}</span>)}
                   </div>
                 </div>}
           </div>
@@ -534,12 +534,12 @@ export default function App() {
   return (
     <div style={{ background: '#090909', minHeight: '100dvh', fontFamily: "'DM Mono', monospace", color: '#e0e0e0', maxWidth: 480, margin: '0 auto', paddingBottom: 90 }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&display=swap');
-        *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500;600&family=Bebas+Neue&display=swap');
+        *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased;}
         html,body{overscroll-behavior-y:none;background:#090909;}
-        ::placeholder{color:#383838;}
+        ::placeholder{color:#5a5a5a;}
         input,select,button,textarea{-webkit-appearance:none;appearance:none;font-family:'DM Mono',monospace;font-size:16px;}
-        input:focus,select:focus{outline:none;border-color:#444!important;}
+        input:focus,select:focus{outline:none;border-color:#666!important;}
         input[type=number]::-webkit-inner-spin-button,
         input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
         input[type=number]{-moz-appearance:textfield;}
@@ -557,15 +557,15 @@ export default function App() {
           <div style={{ fontFamily: "'Bebas Neue'", fontSize: 40, letterSpacing: 6, color: '#fff', lineHeight: 1 }}>IRON LOG</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 5 }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', background: isSaving ? '#f59e0b' : '#22c55e', animation: isSaving ? 'pulse 1s ease infinite' : 'none' }} />
-            <div style={{ fontSize: 10, color: '#2a2a2a', letterSpacing: 2 }}>{isSaving ? 'SAVING...' : 'SYNCED'}</div>
+            <div style={{ fontSize: 11, color: '#888', letterSpacing: 2 }}>{isSaving ? 'SAVING...' : 'SYNCED'}</div>
           </div>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div style={{ fontFamily: "'Bebas Neue'", fontSize: 26, color: '#fff', letterSpacing: 2, lineHeight: 1 }}>
+          <div style={{ fontFamily: "'Bebas Neue'", fontSize: 30, color: '#fff', letterSpacing: 2, lineHeight: 1 }}>
             {streak > 0 && <span style={{ color: '#f59e0b', marginRight: 6 }}>🔥{streak}</span>}
-            <span style={{ color: '#1a1a1a' }}>{sessions.length}</span>
+            <span style={{ color: streak > 0 ? '#2a2a2a' : '#666' }}>{sessions.length}</span>
           </div>
-          <div style={{ fontSize: 9, color: '#2a2a2a', letterSpacing: 1.5, marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: '#888', letterSpacing: 1.5, marginTop: 5 }}>
             {streak > 0 ? `${streak} DAY STREAK · ` : ''}{sessions.length} SESSIONS
           </div>
         </div>
@@ -578,13 +578,13 @@ export default function App() {
             <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} style={{ ...IS, color: '#888', marginBottom: 14 }} />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 20 }}>
               {SPLIT_DAYS.map(d => (
-                <button key={d} onClick={() => setFormDay(d)} style={{ background: formDay === d ? COLORS[d] + '20' : '#111', border: `1.5px solid ${formDay === d ? COLORS[d] + '88' : '#1e1e1e'}`, color: formDay === d ? COLORS[d] : '#3a3a3a', padding: '12px 6px', borderRadius: 10, fontSize: 12, cursor: 'pointer' }}>{d}</button>
+                <button key={d} onClick={() => setFormDay(d)} style={{ background: formDay === d ? COLORS[d] + '20' : '#111', border: `1.5px solid ${formDay === d ? COLORS[d] + '88' : '#1e1e1e'}`, color: formDay === d ? COLORS[d] : '#666', padding: '15px 6px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{d}</button>
               ))}
             </div>
 
             {pending.length > 0 && (
               <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 10, letterSpacing: 2, color: '#3a3a3a', marginBottom: 8 }}>QUEUED — {pending.length} LIFT{pending.length > 1 ? 'S' : ''}</div>
+                <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 8 }}>QUEUED — {pending.length} LIFT{pending.length > 1 ? 'S' : ''}</div>
                 {pending.map((l, i) => (
                   <div key={i} style={{ marginBottom: 8 }}>
                     {editPendIdx === i
@@ -595,12 +595,12 @@ export default function App() {
                           <div style={{ padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span style={{ fontSize: 14, color: '#ccc' }}>{l.exercise}</span>
                             <div style={{ display: 'flex', gap: 6 }}>
-                              <button onClick={() => setEditPendIdx(i)} style={{ background: '#1e1e1e', border: 'none', color: '#888', padding: '8px 14px', borderRadius: 7, fontSize: 12, cursor: 'pointer' }}>EDIT</button>
-                              <button onClick={() => setPending(p => p.filter((_, j) => j !== i))} style={{ background: '#1e1e1e', border: 'none', color: '#555', padding: '8px 14px', borderRadius: 7, fontSize: 12, cursor: 'pointer' }}>✕</button>
+                              <button onClick={() => setEditPendIdx(i)} style={{ background: '#1e1e1e', border: 'none', color: '#888', padding: '11px 18px', borderRadius: 7, fontSize: 12, cursor: 'pointer' }}>EDIT</button>
+                              <button onClick={() => setPending(p => p.filter((_, j) => j !== i))} style={{ background: '#1e1e1e', border: 'none', color: '#555', padding: '11px 18px', borderRadius: 7, fontSize: 12, cursor: 'pointer' }}>✕</button>
                             </div>
                           </div>
                           <div style={{ padding: '0 14px 12px', display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                            {l.sets.map((s, j) => <span key={j} style={{ background: color + '18', border: `1px solid ${color}33`, borderRadius: 6, padding: '3px 9px', fontSize: 12, color }}>S{j + 1}:{fmtW(s.weight)}×{s.reps}</span>)}
+                            {l.sets.map((s, j) => <span key={j} style={{ background: color + '18', border: `1px solid ${color}33`, borderRadius: 6, padding: '5px 11px', fontSize: 13, color }}>S{j + 1}:{fmtW(s.weight)}×{s.reps}</span>)}
                           </div>
                         </div>}
                   </div>
@@ -628,8 +628,8 @@ export default function App() {
 
         {view === 'history' && (
           <>
-            <div style={{ fontSize: 10, letterSpacing: 2, color: '#3a3a3a', marginBottom: 14 }}>{sessions.length} SESSIONS LOGGED</div>
-            {sessions.length === 0 && <div style={{ textAlign: 'center', color: '#222', fontSize: 14, padding: '80px 0' }}>No sessions yet. Tap + to log.</div>}
+            <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 14 }}>{sessions.length} SESSIONS LOGGED</div>
+            {sessions.length === 0 && <div style={{ textAlign: 'center', color: '#555', fontSize: 14, padding: '80px 0' }}>No sessions yet. Tap + to log.</div>}
             {sessions.map(s => {
               const c = COLORS[s.day], isOpen = expandedId === s.id
               const vol = s.lifts.reduce((acc, l) => acc + liftVolume(l), 0)
@@ -643,9 +643,9 @@ export default function App() {
                         <div style={{ fontFamily: "'Bebas Neue'", fontSize: 18, letterSpacing: 2, color: '#fff' }}>{fmtF(s.date)}</div>
                         {hasPR && <span style={{ fontSize: 11 }}>🔥</span>}
                       </div>
-                      <div style={{ fontSize: 11, color: '#444', marginTop: 2 }}><span style={{ color: c }}>{s.day}</span> · {s.lifts.length} lifts · {vol.toLocaleString()} lbs</div>
+                      <div style={{ fontSize: 12, color: '#9a9a9a', marginTop: 3 }}><span style={{ color: c, fontWeight: 600 }}>{s.day}</span> · {s.lifts.length} lifts · {vol.toLocaleString()} lbs</div>
                     </div>
-                    <div style={{ color: '#2a2a2a', fontSize: 22, transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}>›</div>
+                    <div style={{ color: '#5a5a5a', fontSize: 22, transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}>›</div>
                   </button>
                   {isOpen && (
                     <div style={{ borderTop: '1px solid #161616' }}>
@@ -655,20 +655,20 @@ export default function App() {
                           <div key={i} style={{ padding: '12px 16px', borderBottom: i < s.lifts.length - 1 ? '1px solid #141414' : 'none' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
                               <div style={{ fontSize: 14, color: '#ccc' }}>{l.exercise}</div>
-                              {pr && <div style={{ background: pr.weightPR ? '#f59e0b22' : '#22c55e22', color: pr.weightPR ? '#f59e0b' : '#22c55e', border: `1px solid ${pr.weightPR ? '#f59e0b44' : '#22c55e44'}`, fontSize: 9, padding: '3px 7px', borderRadius: 4, letterSpacing: 1 }}>{pr.weightPR ? '🔥 WEIGHT PR' : '📈 VOL PR'}</div>}
+                              {pr && <div style={{ background: pr.weightPR ? '#f59e0b22' : '#22c55e22', color: pr.weightPR ? '#f59e0b' : '#22c55e', border: `1px solid ${pr.weightPR ? '#f59e0b66' : '#22c55e66'}`, fontSize: 11, padding: '5px 9px', borderRadius: 6, letterSpacing: 1, fontWeight: 600 }}>{pr.weightPR ? '🔥 WEIGHT PR' : '📈 VOL PR'}</div>}
                             </div>
                             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                              {l.sets.map((x, j) => <span key={j} style={{ background: c + '18', border: `1px solid ${c}33`, borderRadius: 6, padding: '3px 9px', fontSize: 12, color: c }}>S{j + 1}:{fmtW(x.weight)}×{x.reps}</span>)}
-                              <span style={{ background: '#1a1a1a', borderRadius: 6, padding: '3px 9px', fontSize: 11, color: '#555' }}>vol:{liftVolume(l)}</span>
+                              {l.sets.map((x, j) => <span key={j} style={{ background: c + '18', border: `1px solid ${c}33`, borderRadius: 6, padding: '5px 11px', fontSize: 13, color: c }}>S{j + 1}:{fmtW(x.weight)}×{x.reps}</span>)}
+                              <span style={{ background: '#1a1a1a', borderRadius: 6, padding: '5px 11px', fontSize: 12, color: '#555' }}>vol:{liftVolume(l)}</span>
                             </div>
                           </div>
                         )
                       })}
                       <div style={{ padding: '10px 16px', background: '#0c0c0c', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, color: '#444' }}>TOTAL: <span style={{ color: '#666' }}>{vol.toLocaleString()} lbs</span></span>
+                        <span style={{ fontSize: 12, color: '#888' }}>TOTAL: <span style={{ color: '#ddd' }}>{vol.toLocaleString()} lbs</span></span>
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <button onClick={() => setEditSess(s)} style={{ background: '#1e1e1e', border: 'none', color: '#888', padding: '8px 14px', borderRadius: 7, fontSize: 12, cursor: 'pointer' }}>EDIT</button>
-                          <button onClick={() => deleteSession(s.id)} style={{ background: 'none', border: '1px solid #3b0a0a', color: '#ef444488', padding: '8px 14px', borderRadius: 7, fontSize: 12, cursor: 'pointer' }}>DELETE</button>
+                          <button onClick={() => setEditSess(s)} style={{ background: '#1e1e1e', border: 'none', color: '#888', padding: '11px 18px', borderRadius: 7, fontSize: 12, cursor: 'pointer' }}>EDIT</button>
+                          <button onClick={() => deleteSession(s.id)} style={{ background: 'none', border: '1px solid #3b0a0a', color: '#ef444488', padding: '11px 18px', borderRadius: 7, fontSize: 12, cursor: 'pointer' }}>DELETE</button>
                         </div>
                       </div>
                     </div>
@@ -681,8 +681,8 @@ export default function App() {
 
         {view === 'progress' && (
           <>
-            <div style={{ fontSize: 10, letterSpacing: 2, color: '#3a3a3a', marginBottom: 8 }}>SELECT EXERCISE</div>
-            <select value={progressEx} onChange={e => setProgressEx(e.target.value)} style={{ ...IS, color: progressEx ? '#e0e0e0' : '#3a3a3a' }}>
+            <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 8 }}>SELECT EXERCISE</div>
+            <select value={progressEx} onChange={e => setProgressEx(e.target.value)} style={{ ...IS, color: progressEx ? '#e0e0e0' : '#666' }}>
               <option value="">— Pick an exercise —</option>
               {allExercises.map(e => <option key={e} value={e}>{e}</option>)}
             </select>
@@ -690,58 +690,58 @@ export default function App() {
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
                   {[['BEST WT', Math.max(...progressData.map(d => d.maxWeight)) + 'lb'], ['SESSIONS', progressData.length], ['BEST VOL', Math.max(...progressData.map(d => d.volume)).toLocaleString()]].map(([label, val]) => (
-                    <div key={label} style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 10, padding: '14px 10px', textAlign: 'center' }}>
-                      <div style={{ fontFamily: "'Bebas Neue'", fontSize: 24, color: '#fff', letterSpacing: 1, lineHeight: 1 }}>{val}</div>
-                      <div style={{ fontSize: 8, color: '#3a3a3a', letterSpacing: 1.5, marginTop: 4 }}>{label}</div>
+                    <div key={label} style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 12, padding: '16px 8px', textAlign: 'center' }}>
+                      <div style={{ fontFamily: "'Bebas Neue'", fontSize: 28, color: '#fff', letterSpacing: 1, lineHeight: 1 }}>{val}</div>
+                      <div style={{ fontSize: 11, color: '#888', letterSpacing: 1.5, marginTop: 6 }}>{label}</div>
                     </div>
                   ))}
                 </div>
 
-                <div style={{ background: '#111', border: `1px solid ${trend.color}33`, borderRadius: 10, padding: '14px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
-                  <div style={{ width: 6, height: 36, borderRadius: 3, background: trend.color, flexShrink: 0 }} />
+                <div style={{ background: '#111', border: `1px solid ${trend.color}44`, borderRadius: 12, padding: '16px 18px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div style={{ width: 6, height: 42, borderRadius: 3, background: trend.color, flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: "'Bebas Neue'", fontSize: 20, letterSpacing: 3, color: trend.color, lineHeight: 1 }}>{trend.label}</div>
-                    <div style={{ fontSize: 11, color: '#666', marginTop: 4, lineHeight: 1.4 }}>{trend.detail}</div>
+                    <div style={{ fontFamily: "'Bebas Neue'", fontSize: 24, letterSpacing: 3, color: trend.color, lineHeight: 1 }}>{trend.label}</div>
+                    <div style={{ fontSize: 12, color: '#aaa', marginTop: 6, lineHeight: 1.45 }}>{trend.detail}</div>
                   </div>
                 </div>
 
                 <div style={{ display: 'flex', background: '#111', border: '1px solid #1a1a1a', borderRadius: 10, marginBottom: 14, overflow: 'hidden' }}>
                   {[['maxWeight', 'MAX WT'], ['avgWeight', 'AVG WT'], ['volume', 'VOLUME'], ['reps', 'REPS']].map(([k, l]) => (
-                    <button key={k} onClick={() => setMetric(k)} style={{ flex: 1, background: metric === k ? '#1e1e1e' : 'none', border: 'none', color: metric === k ? '#fff' : '#3a3a3a', padding: '12px 2px', fontSize: 10, letterSpacing: 1, cursor: 'pointer' }}>{l}</button>
+                    <button key={k} onClick={() => setMetric(k)} style={{ flex: 1, background: metric === k ? '#1e1e1e' : 'none', border: 'none', color: metric === k ? '#fff' : '#888', padding: '14px 2px', fontSize: 12, letterSpacing: 1, cursor: 'pointer', fontWeight: metric === k ? 600 : 400 }}>{l}</button>
                   ))}
                 </div>
                 <div style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 12, padding: '16px 4px 8px', marginBottom: 16 }}>
                   <ResponsiveContainer width="100%" height={200}>
                     <LineChart data={progressData} margin={{ left: 0, right: 8 }}>
-                      <XAxis dataKey="date" tick={{ fill: '#3a3a3a', fontSize: 10, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: '#3a3a3a', fontSize: 10, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} width={40} />
+                      <XAxis dataKey="date" tick={{ fill: '#888', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: '#888', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} width={44} />
                       <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', fontFamily: 'DM Mono', fontSize: 12, color: '#fff', borderRadius: 8 }} labelStyle={{ color: '#888' }} />
                       <Line type="monotone" dataKey={metric} stroke="#e0e0e0" strokeWidth={2.5} dot={{ fill: '#e0e0e0', r: 4, strokeWidth: 0 }} activeDot={{ r: 6, fill: '#fff' }} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-                <div style={{ fontSize: 10, letterSpacing: 2, color: '#3a3a3a', marginBottom: 10 }}>PER SESSION</div>
+                <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 10 }}>PER SESSION</div>
                 {[...progressData].reverse().map((d, i) => (
                   <div key={i} style={{ background: '#111', border: '1px solid #1a1a1a', borderRadius: 10, padding: '12px 14px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                      <div style={{ fontSize: 13, color: '#888' }}>{d.date}</div>
-                      <div style={{ fontSize: 11, color: '#3a3a3a', marginTop: 3 }}>vol:{d.volume} · reps:{d.reps} · avg:{d.avgWeight}lb</div>
+                      <div style={{ fontSize: 14, color: '#ddd', fontWeight: 500 }}>{d.date}</div>
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>vol:{d.volume.toLocaleString()} · reps:{d.reps} · avg:{d.avgWeight}lb</div>
                     </div>
-                    <div style={{ fontFamily: "'Bebas Neue'", fontSize: 28, color: '#fff' }}>{d.maxWeight}<span style={{ fontFamily: "'DM Mono'", fontSize: 11, color: '#444' }}>lb</span></div>
+                    <div style={{ fontFamily: "'Bebas Neue'", fontSize: 32, color: '#fff', letterSpacing: 1 }}>{d.maxWeight}<span style={{ fontFamily: "'DM Mono'", fontSize: 12, color: '#888', marginLeft: 3 }}>lb</span></div>
                   </div>
                 ))}
               </>
             )}
-            {!progressEx && allExercises.length === 0 && <div style={{ color: '#222', textAlign: 'center', padding: '60px 0', fontSize: 14 }}>Log sessions first.</div>}
+            {!progressEx && allExercises.length === 0 && <div style={{ color: '#555', textAlign: 'center', padding: '60px 0', fontSize: 14 }}>Log sessions first.</div>}
           </>
         )}
       </div>
 
-      <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: '#0d0d0d', borderTop: '1px solid #161616', display: 'flex', zIndex: 20, paddingBottom: 'env(safe-area-inset-bottom,8px)' }}>
+      <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: '#0d0d0d', borderTop: '1px solid #1a1a1a', display: 'flex', zIndex: 20, paddingBottom: 'env(safe-area-inset-bottom,8px)' }}>
         {[['log', '＋', 'LOG'], ['history', '≡', 'HISTORY'], ['progress', '↗', 'PROGRESS']].map(([k, icon, label]) => (
-          <button key={k} onClick={() => setView(k)} style={{ flex: 1, background: 'none', border: 'none', color: view === k ? '#fff' : '#333', padding: '14px 0 12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 22, lineHeight: 1, color: view === k ? COLORS[formDay] : '#222' }}>{icon}</span>
-            <span style={{ fontSize: 9, letterSpacing: 2, fontFamily: "'DM Mono', monospace" }}>{label}</span>
+          <button key={k} onClick={() => setView(k)} style={{ flex: 1, background: 'none', border: 'none', color: view === k ? '#fff' : '#666', padding: '14px 0 12px', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
+            <span style={{ fontSize: 26, lineHeight: 1, color: view === k ? '#fff' : '#555' }}>{icon}</span>
+            <span style={{ fontSize: 11, letterSpacing: 2, fontFamily: "'DM Mono', monospace", fontWeight: view === k ? 600 : 400 }}>{label}</span>
           </button>
         ))}
       </div>
