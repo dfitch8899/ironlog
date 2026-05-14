@@ -114,7 +114,7 @@ const IS = {
 }
 
 // ── LiftBuilder ───────────────────────────────────────────────────────────
-function LiftBuilder({ lift, color, exerciseHistory, lastLiftFor, onConfirm, onCancel, confirmLabel = 'CONFIRM ✓' }) {
+function LiftBuilder({ lift, color, day, exerciseHistory, dayExercises = [], lastLiftFor, onConfirm, onCancel, confirmLabel = 'CONFIRM ✓' }) {
   const [name, setName] = useState(lift?.exercise || '')
   const [sets, setSets] = useState(lift?.sets?.length ? dc(lift.sets) : [{ weight: '', reps: '' }])
   const wRefs = useRef([])
@@ -152,18 +152,39 @@ function LiftBuilder({ lift, color, exerciseHistory, lastLiftFor, onConfirm, onC
     <div style={{ background: '#0f0f0f', border: `1.5px solid ${color}44`, borderRadius: 14, padding: '18px 16px' }}>
       <div style={{ fontSize: 10, letterSpacing: 2, color, marginBottom: 14 }}>LIFT</div>
 
+      {dayExercises.length > 0 && (
+        <select
+          value=""
+          onChange={e => { if (e.target.value) setName(e.target.value) }}
+          style={{ ...IS, color: color, borderColor: color + '55' }}
+        >
+          <option value="" style={{ color: '#555' }}>— Quick pick · {day} —</option>
+          {dayExercises.map(e => <option key={e} value={e} style={{ color: '#e0e0e0' }}>{e}</option>)}
+        </select>
+      )}
+
+      {exerciseHistory.length > 0 && (
+        <select
+          value=""
+          onChange={e => { if (e.target.value) setName(e.target.value) }}
+          style={{ ...IS, color: '#888' }}
+        >
+          <option value="" style={{ color: '#555' }}>— All exercises —</option>
+          {exerciseHistory.map(e => <option key={e} value={e} style={{ color: '#e0e0e0' }}>{e}</option>)}
+        </select>
+      )}
+
       <input
         value={name}
         onChange={e => setName(e.target.value)}
-        placeholder="Exercise name"
-        autoFocus
+        placeholder="Or type new exercise name"
         autoCorrect="off"
         autoCapitalize="words"
         spellCheck={false}
-        list="exercise-history"
+        list="exercise-history-datalist"
         style={IS}
       />
-      <datalist id="exercise-history">
+      <datalist id="exercise-history-datalist">
         {exerciseHistory.map(e => <option key={e} value={e} />)}
       </datalist>
 
@@ -228,7 +249,7 @@ function LiftBuilder({ lift, color, exerciseHistory, lastLiftFor, onConfirm, onC
 }
 
 // ── SessionEditor ─────────────────────────────────────────────────────────
-function SessionEditor({ session, exerciseHistory, lastLiftFor, onSave, onClose }) {
+function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, onSave, onClose }) {
   const [date, setDate]   = useState(session.date)
   const [day, setDay]     = useState(session.day)
   const [lifts, setLifts] = useState(dc(session.lifts))
@@ -256,7 +277,7 @@ function SessionEditor({ session, exerciseHistory, lastLiftFor, onSave, onClose 
         {lifts.map((l, i) => (
           <div key={i} style={{ marginBottom: 10 }}>
             {editIdx === i
-              ? <LiftBuilder lift={l} color={color} exerciseHistory={exerciseHistory} lastLiftFor={lastLiftFor} confirmLabel="SAVE LIFT ✓"
+              ? <LiftBuilder lift={l} color={color} day={day} exerciseHistory={exerciseHistory} dayExercises={exercisesByDay?.[day] || []} lastLiftFor={lastLiftFor} confirmLabel="SAVE LIFT ✓"
                   onConfirm={u => { setLifts(p => p.map((x, j) => j === i ? u : x)); setEditIdx(null) }}
                   onCancel={() => setEditIdx(null)} />
               : <div style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
@@ -274,7 +295,7 @@ function SessionEditor({ session, exerciseHistory, lastLiftFor, onSave, onClose 
           </div>
         ))}
         {addingNew
-          ? <LiftBuilder lift={null} color={color} exerciseHistory={exerciseHistory} lastLiftFor={lastLiftFor} confirmLabel="ADD LIFT ✓"
+          ? <LiftBuilder lift={null} color={color} day={day} exerciseHistory={exerciseHistory} dayExercises={exercisesByDay?.[day] || []} lastLiftFor={lastLiftFor} confirmLabel="ADD LIFT ✓"
               onConfirm={u => { setLifts(p => [...p, u]); setAddingNew(false) }}
               onCancel={() => setAddingNew(false)} />
           : <button onClick={() => setAddingNew(true)} style={{ width: '100%', background: '#111', border: `1.5px dashed ${color}55`, color, padding: '16px', borderRadius: 12, fontSize: 13, letterSpacing: 2, cursor: 'pointer', marginBottom: 14, fontFamily: "'DM Mono', monospace" }}>+ ADD LIFT</button>}
@@ -373,6 +394,22 @@ export default function App() {
     () => [...new Set(sessions.flatMap(s => s.lifts.map(l => l.exercise)))].sort(),
     [sessions]
   )
+
+  // For each split day, ordered list of exercises ever done on that day (most-recently-used first)
+  const exercisesByDay = useMemo(() => {
+    const map = {}
+    SPLIT_DAYS.forEach(d => { map[d] = {} })
+    sessions.forEach(s => s.lifts.forEach(l => {
+      if (!map[s.day]) map[s.day] = {}
+      const cur = map[s.day][l.exercise] || 0
+      if (s.id > cur) map[s.day][l.exercise] = s.id
+    }))
+    const out = {}
+    Object.entries(map).forEach(([d, exs]) => {
+      out[d] = Object.entries(exs).sort((a, b) => b[1] - a[1]).map(([n]) => n)
+    })
+    return out
+  }, [sessions])
 
   const liftIndex = useMemo(() => {
     const idx = {}
@@ -492,7 +529,7 @@ export default function App() {
     </div>
   )
 
-  if (editSess) return <SessionEditor session={editSess} exerciseHistory={allExercises} lastLiftFor={lastLiftFor} onSave={updateSession} onClose={() => setEditSess(null)} />
+  if (editSess) return <SessionEditor session={editSess} exerciseHistory={allExercises} exercisesByDay={exercisesByDay} lastLiftFor={lastLiftFor} onSave={updateSession} onClose={() => setEditSess(null)} />
 
   return (
     <div style={{ background: '#090909', minHeight: '100dvh', fontFamily: "'DM Mono', monospace", color: '#e0e0e0', maxWidth: 480, margin: '0 auto', paddingBottom: 90 }}>
@@ -551,7 +588,7 @@ export default function App() {
                 {pending.map((l, i) => (
                   <div key={i} style={{ marginBottom: 8 }}>
                     {editPendIdx === i
-                      ? <LiftBuilder lift={l} color={color} exerciseHistory={allExercises} lastLiftFor={lastLiftFor} confirmLabel="SAVE LIFT ✓"
+                      ? <LiftBuilder lift={l} color={color} day={formDay} exerciseHistory={allExercises} dayExercises={exercisesByDay[formDay] || []} lastLiftFor={lastLiftFor} confirmLabel="SAVE LIFT ✓"
                           onConfirm={u => { setPending(p => p.map((x, j) => j === i ? u : x)); setEditPendIdx(null) }}
                           onCancel={() => setEditPendIdx(null)} />
                       : <div style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
@@ -573,7 +610,7 @@ export default function App() {
 
             {addingLift && editPendIdx === null
               ? <div style={{ marginBottom: 14 }}>
-                  <LiftBuilder lift={null} color={color} exerciseHistory={allExercises} lastLiftFor={lastLiftFor} confirmLabel="ADD LIFT ✓"
+                  <LiftBuilder lift={null} color={color} day={formDay} exerciseHistory={allExercises} dayExercises={exercisesByDay[formDay] || []} lastLiftFor={lastLiftFor} confirmLabel="ADD LIFT ✓"
                     onConfirm={l => { setPending(p => [...p, l]); setAddingLift(false) }}
                     onCancel={() => setAddingLift(false)} />
                 </div>
