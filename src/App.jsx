@@ -115,6 +115,11 @@ const Icon = ({ d, size = 24, w = 2.25 }) => (
 const IconPlus     = p => <Icon {...p} d={<><path d="M12 5v14" /><path d="M5 12h14" /></>} />
 const IconList     = p => <Icon {...p} d={<><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h11" /></>} />
 const IconTrending = p => <Icon {...p} d={<><polyline points="3 17 9 11 13 15 21 7" /><polyline points="14 7 21 7 21 14" /></>} />
+const IconBars     = p => <Icon {...p} d={<><line x1="6" y1="20" x2="6" y2="13" /><line x1="12" y1="20" x2="12" y2="8" /><line x1="18" y1="20" x2="18" y2="4" /></>} />
+const IconArrowUp  = p => <Icon {...p} d={<><line x1="7" y1="17" x2="17" y2="7" /><polyline points="9 7 17 7 17 15" /></>} />
+const IconArrowDn  = p => <Icon {...p} d={<><line x1="7" y1="7" x2="17" y2="17" /><polyline points="17 9 17 17 9 17" /></>} />
+const IconDash     = p => <Icon {...p} d={<line x1="6" y1="12" x2="18" y2="12" />} />
+const IconSpark    = p => <Icon {...p} d={<polygon points="12 3 14 10 21 12 14 14 12 21 10 14 3 12 10 10" />} />
 
 // ── shared input style ──────────────────────────────────────────────────
 const IS = {
@@ -359,6 +364,7 @@ export default function App() {
   const [expandedId, setExpandedId]   = useState(null)
   const [progressEx, setProgressEx]   = useState('')
   const [metric, setMetric]           = useState('maxWeight')
+  const [trendFilter, setTrendFilter] = useState('ALL')
   const [flash, setFlash]             = useState(null)
 
   const flashTimer = useRef(null)
@@ -473,6 +479,76 @@ export default function App() {
   }, [sessions, progressEx])
 
   const trend = useMemo(() => analyzeTrend(progressData), [progressData])
+
+  // Per-exercise progress: latest session vs previous occurrence. Used by the TRENDS view.
+  const exerciseProgress = useMemo(() => {
+    const groups = {}
+    sessions.forEach(s => s.lifts.forEach(l => {
+      const key = l.exercise.toLowerCase().trim()
+      if (!groups[key]) groups[key] = []
+      groups[key].push({ session: s, lift: l, displayName: l.exercise })
+    }))
+    const result = []
+    Object.values(groups).forEach(arr => {
+      arr.sort((a, b) => b.session.date.localeCompare(a.session.date) || b.session.id - a.session.id)
+      const latest = arr[0]
+      const latestMaxW = liftMaxWeight(latest.lift)
+      const latestReps = latest.lift.sets.reduce((a, b) => a + b.reps, 0)
+      const latestVol  = liftVolume(latest.lift)
+      const row = {
+        name: latest.displayName,
+        day: latest.session.day,
+        latestDate: latest.session.date,
+        latestSessionId: latest.session.id,
+        latestMaxW, latestReps, latestVol,
+        latestSets: latest.lift.sets,
+        prev: null,
+        prevDate: null,
+        prevMaxW: 0, prevReps: 0,
+        prevSets: null,
+        wDelta: 0, rDelta: 0, vDelta: 0,
+        status: 'new',
+      }
+      const prev = arr[1]
+      if (prev) {
+        const prevMaxW = liftMaxWeight(prev.lift)
+        const prevReps = prev.lift.sets.reduce((a, b) => a + b.reps, 0)
+        const prevVol  = liftVolume(prev.lift)
+        row.prev = prev
+        row.prevDate = prev.session.date
+        row.prevMaxW = prevMaxW
+        row.prevReps = prevReps
+        row.prevSets = prev.lift.sets
+        row.wDelta = +(latestMaxW - prevMaxW).toFixed(1)
+        row.rDelta = latestReps - prevReps
+        row.vDelta = latestVol - prevVol
+        if (row.wDelta > 0)        row.status = 'up-w'
+        else if (row.wDelta < 0)   row.status = 'down'
+        else if (row.rDelta > 0)   row.status = 'up-r'
+        else if (row.rDelta < 0)   row.status = 'down'
+        else                       row.status = 'same'
+      }
+      result.push(row)
+    })
+    result.sort((a, b) => b.latestDate.localeCompare(a.latestDate) || b.latestSessionId - a.latestSessionId || a.name.localeCompare(b.name))
+    return result
+  }, [sessions])
+
+  const trendCounts = useMemo(() => {
+    const c = { up: 0, same: 0, down: 0, new: 0 }
+    exerciseProgress.forEach(r => {
+      if (r.status === 'up-w' || r.status === 'up-r') c.up++
+      else if (r.status === 'same') c.same++
+      else if (r.status === 'down') c.down++
+      else c.new++
+    })
+    return c
+  }, [exerciseProgress])
+
+  const filteredTrends = useMemo(
+    () => trendFilter === 'ALL' ? exerciseProgress : exerciseProgress.filter(r => r.day === trendFilter),
+    [exerciseProgress, trendFilter]
+  )
 
   const commitSessions = useCallback(async data => {
     const sorted = sortS(data)
@@ -702,6 +778,96 @@ export default function App() {
           </>
         )}
 
+        {view === 'trends' && (
+          <>
+            {exerciseProgress.length === 0 ? (
+              <div style={{ textAlign: 'center', color: '#555', fontSize: 14, padding: '80px 0' }}>Log some sessions first.</div>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 12 }}>SESSION-OVER-SESSION</div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 16 }}>
+                  {[
+                    { label: 'UP',     val: trendCounts.up,   color: '#22c55e', Ic: IconArrowUp },
+                    { label: 'SAME',   val: trendCounts.same, color: '#f59e0b', Ic: IconDash },
+                    { label: 'DOWN',   val: trendCounts.down, color: '#ef4444', Ic: IconArrowDn },
+                    { label: 'NEW',    val: trendCounts.new,  color: '#a855f7', Ic: IconSpark },
+                  ].map(({ label, val, color: c, Ic }) => (
+                    <div key={label} className="card" style={{ background: '#111', border: `1px solid ${c}33`, borderRadius: 12, padding: '14px 6px', textAlign: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: c, marginBottom: 6 }}><Ic size={18} w={2.2} /></div>
+                      <div style={{ fontFamily: "'Bebas Neue'", fontSize: 26, color: '#fff', letterSpacing: 1, lineHeight: 1 }}>{val}</div>
+                      <div style={{ fontSize: 10, color: c, letterSpacing: 1.5, marginTop: 5, fontWeight: 600 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 14, paddingBottom: 4, marginLeft: -16, marginRight: -16, paddingLeft: 16, paddingRight: 16 }}>
+                  {['ALL', ...SPLIT_DAYS].map(d => {
+                    const active = trendFilter === d
+                    const c = d === 'ALL' ? '#fff' : COLORS[d]
+                    return (
+                      <button key={d} onClick={() => setTrendFilter(d)} style={{ flexShrink: 0, background: active ? (d === 'ALL' ? '#fff' : c + '22') : '#0e0e0e', border: `1.5px solid ${active ? (d === 'ALL' ? '#fff' : c + 'aa') : '#1e1e1e'}`, color: active ? (d === 'ALL' ? '#000' : c) : '#7a7a7a', padding: '8px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600, letterSpacing: 1, fontFamily: "'DM Mono', monospace", boxShadow: active && d !== 'ALL' ? `0 0 14px ${c}33` : 'none' }}>{d}</button>
+                    )
+                  })}
+                </div>
+
+                {filteredTrends.length === 0 && (
+                  <div style={{ textAlign: 'center', color: '#555', fontSize: 13, padding: '60px 0' }}>No {trendFilter.toLowerCase()} exercises logged yet.</div>
+                )}
+
+                {filteredTrends.map((r, idx) => {
+                  const dayColor = COLORS[r.day]
+                  const statusMeta = {
+                    'up-w': { color: '#22c55e', label: `+${r.wDelta}lb`,    Ic: IconArrowUp },
+                    'up-r': { color: '#06b6d4', label: `+${r.rDelta} rep${Math.abs(r.rDelta) === 1 ? '' : 's'}`, Ic: IconArrowUp },
+                    'same': { color: '#f59e0b', label: 'PLATEAU',           Ic: IconDash },
+                    'down': { color: '#ef4444', label: r.wDelta !== 0 ? `${r.wDelta}lb` : `${r.rDelta} reps`, Ic: IconArrowDn },
+                    'new':  { color: '#a855f7', label: 'NEW',               Ic: IconSpark },
+                  }[r.status]
+                  return (
+                    <div key={r.name + r.latestSessionId} className="session-card card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 14, marginBottom: 10, overflow: 'hidden', animationDelay: `${Math.min(idx, 8) * 35}ms` }}>
+                      <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ width: 4, height: 50, borderRadius: 2, background: dayColor, flexShrink: 0, boxShadow: `0 0 12px ${dayColor}66` }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 15, color: '#fff', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
+                          <div style={{ fontSize: 11, color: '#9a9a9a', marginTop: 4, letterSpacing: 0.3 }}>
+                            <span style={{ color: dayColor, fontWeight: 600 }}>{r.day}</span> · {fmt(r.latestDate)}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: statusMeta.color + '1a', border: `1px solid ${statusMeta.color}55`, color: statusMeta.color, fontSize: 11, padding: '5px 10px', borderRadius: 8, fontWeight: 600, letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
+                            <statusMeta.Ic size={13} w={2.4} />
+                            <span>{statusMeta.label}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ borderTop: '1px solid #1a1a1a', padding: '10px 16px', background: '#0c0c0c', display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+                        {r.prevSets ? (
+                          <>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 10, color: '#666', letterSpacing: 1, marginBottom: 4, fontWeight: 600 }}>PREV · {fmt(r.prevDate)}</div>
+                              <div style={{ color: '#888', fontSize: 13 }}>{r.prevMaxW === 0 ? 'BW' : r.prevMaxW}lb × {r.prevReps} reps</div>
+                            </div>
+                            <div style={{ color: '#444', fontSize: 16 }}>→</div>
+                            <div style={{ flex: 1, minWidth: 0, textAlign: 'right' }}>
+                              <div style={{ fontSize: 10, color: '#666', letterSpacing: 1, marginBottom: 4, fontWeight: 600 }}>NOW</div>
+                              <div style={{ color: '#fff', fontSize: 13, fontWeight: 500 }}>{r.latestMaxW === 0 ? 'BW' : r.latestMaxW}lb × {r.latestReps} reps</div>
+                            </div>
+                          </>
+                        ) : (
+                          <div style={{ flex: 1, color: '#888', fontSize: 12 }}>
+                            First time · {r.latestMaxW === 0 ? 'BW' : r.latestMaxW}lb × {r.latestReps} reps
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </>
+            )}
+          </>
+        )}
+
         {view === 'progress' && (
           <>
             <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 8 }}>SELECT EXERCISE</div>
@@ -761,7 +927,7 @@ export default function App() {
       </div>
 
       <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: 'rgba(13,13,13,0.92)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', borderTop: '1px solid #1f1f1f', display: 'flex', zIndex: 20, paddingBottom: 'env(safe-area-inset-bottom,8px)', boxShadow: '0 -8px 24px rgba(0,0,0,0.5)' }}>
-        {[['log', IconPlus, 'LOG'], ['history', IconList, 'HISTORY'], ['progress', IconTrending, 'PROGRESS']].map(([k, Ic, label]) => {
+        {[['log', IconPlus, 'LOG'], ['history', IconList, 'HISTORY'], ['trends', IconBars, 'TRENDS'], ['progress', IconTrending, 'PROGRESS']].map(([k, Ic, label]) => {
           const active = view === k
           return (
             <button key={k} onClick={() => setView(k)} style={{ flex: 1, background: 'none', border: 'none', color: active ? '#fff' : '#666', padding: '14px 0 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, minHeight: 60, position: 'relative' }}>
