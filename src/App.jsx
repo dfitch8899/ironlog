@@ -63,6 +63,10 @@ const dc    = o => JSON.parse(JSON.stringify(o))
 const sortS = arr => [...arr].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
 const liftVolume = l => l.sets.reduce((a, x) => a + x.weight * x.reps, 0)
 const liftMaxWeight = l => Math.max(...l.sets.map(x => x.weight))
+const bestSet = l => l.sets.reduce(
+  (best, s) => (s.weight > best.weight || (s.weight === best.weight && s.reps > best.reps)) ? s : best,
+  { weight: 0, reps: 0 }
+)
 const eqEx = (a, b) => a.toLowerCase().trim() === b.toLowerCase().trim()
 const vibrate = (ms = 15) => navigator.vibrate?.(ms)
 const fmtW = w => w === 0 ? 'BW' : w  // bodyweight display
@@ -450,14 +454,16 @@ export default function App() {
     const oldestFirst = [...sessions].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)
     oldestFirst.forEach(s => s.lifts.forEach((l, idx) => {
       const key = l.exercise.toLowerCase().trim()
-      const mw = liftMaxWeight(l), v = liftVolume(l)
-      const best = byEx[key] || { mw: 0, v: 0 }
-      const isWeightPR = mw > best.mw
-      const isVolumePR = v > best.v
-      if (isWeightPR || isVolumePR) {
-        result[`${s.id}-${idx}`] = { weightPR: isWeightPR, volumePR: isVolumePR && !isWeightPR }
+      const bs = bestSet(l)
+      const best = byEx[key] || { maxW: 0, repsAtMaxW: 0 }
+      const isWeightPR = bs.weight > best.maxW
+      const isRepPR = !isWeightPR && bs.weight === best.maxW && bs.reps > best.repsAtMaxW
+      if (isWeightPR || isRepPR) {
+        result[`${s.id}-${idx}`] = { weightPR: isWeightPR, repPR: isRepPR }
       }
-      byEx[key] = { mw: Math.max(best.mw, mw), v: Math.max(best.v, v) }
+      if (bs.weight > best.maxW) byEx[key] = { maxW: bs.weight, repsAtMaxW: bs.reps }
+      else if (bs.weight === best.maxW) byEx[key] = { maxW: best.maxW, repsAtMaxW: Math.max(best.repsAtMaxW, bs.reps) }
+      else byEx[key] = best
     }))
     return result
   }, [sessions])
@@ -492,15 +498,16 @@ export default function App() {
     Object.values(groups).forEach(arr => {
       arr.sort((a, b) => b.session.date.localeCompare(a.session.date) || b.session.id - a.session.id)
       const latest = arr[0]
-      const latestMaxW = liftMaxWeight(latest.lift)
-      const latestReps = latest.lift.sets.reduce((a, b) => a + b.reps, 0)
+      const latestBest = bestSet(latest.lift)
       const latestVol  = liftVolume(latest.lift)
       const row = {
         name: latest.displayName,
         day: latest.session.day,
         latestDate: latest.session.date,
         latestSessionId: latest.session.id,
-        latestMaxW, latestReps, latestVol,
+        latestMaxW: latestBest.weight,
+        latestReps: latestBest.reps,
+        latestVol,
         latestSets: latest.lift.sets,
         prev: null,
         prevDate: null,
@@ -511,16 +518,15 @@ export default function App() {
       }
       const prev = arr[1]
       if (prev) {
-        const prevMaxW = liftMaxWeight(prev.lift)
-        const prevReps = prev.lift.sets.reduce((a, b) => a + b.reps, 0)
+        const prevBest = bestSet(prev.lift)
         const prevVol  = liftVolume(prev.lift)
         row.prev = prev
         row.prevDate = prev.session.date
-        row.prevMaxW = prevMaxW
-        row.prevReps = prevReps
+        row.prevMaxW = prevBest.weight
+        row.prevReps = prevBest.reps
         row.prevSets = prev.lift.sets
-        row.wDelta = +(latestMaxW - prevMaxW).toFixed(1)
-        row.rDelta = latestReps - prevReps
+        row.wDelta = +(latestBest.weight - prevBest.weight).toFixed(1)
+        row.rDelta = latestBest.reps - prevBest.reps
         row.vDelta = latestVol - prevVol
         if (row.wDelta > 0)        row.status = 'up-w'
         else if (row.wDelta < 0)   row.status = 'down'
@@ -567,7 +573,7 @@ export default function App() {
     }
   }, [sessions, showFlash])
 
-  const saveSession = async () => {
+  const saveSession = async ({ goToHistory = false } = {}) => {
     if (!pending.length) return showFlash('Add at least one lift', 'err')
     const s = { id: Date.now(), date: formDate, day: formDay, lifts: pending }
     const result = await commitSessions([s, ...sessions])
@@ -575,7 +581,7 @@ export default function App() {
       vibrate(20)
       setPending([]); setAddingLift(false); setEditPendIdx(null)
       showFlash(formDay + ' saved! ☁️')
-      setView('history')
+      if (goToHistory) setView('history')
     }
   }
 
@@ -718,9 +724,14 @@ export default function App() {
               )
             }
             {pending.length > 0 && !addingLift && editPendIdx === null && (
-              <button onClick={saveSession} disabled={isSaving} style={{ width: '100%', background: isSaving ? '#1e1e1e' : 'linear-gradient(180deg,#ffffff 0%,#e8e8e8 100%)', border: 'none', color: isSaving ? '#555' : '#000', padding: '18px', borderRadius: 14, fontSize: 13, letterSpacing: 3, cursor: isSaving ? 'default' : 'pointer', fontWeight: 700, boxShadow: isSaving ? 'none' : 'inset 0 1px 0 rgba(255,255,255,0.6), 0 4px 16px rgba(0,0,0,0.5), 0 1px 0 rgba(0,0,0,0.2)' }}>
-                {isSaving ? 'SAVING...' : 'SAVE SESSION →'}
-              </button>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 8 }}>
+                <button onClick={() => saveSession()} disabled={isSaving} style={{ background: isSaving ? '#1e1e1e' : 'linear-gradient(180deg,#ffffff 0%,#e8e8e8 100%)', border: 'none', color: isSaving ? '#555' : '#000', padding: '18px', borderRadius: 14, fontSize: 13, letterSpacing: 3, cursor: isSaving ? 'default' : 'pointer', fontWeight: 700, boxShadow: isSaving ? 'none' : 'inset 0 1px 0 rgba(255,255,255,0.6), 0 4px 16px rgba(0,0,0,0.5), 0 1px 0 rgba(0,0,0,0.2)' }}>
+                  {isSaving ? 'SAVING...' : 'SAVE SESSION'}
+                </button>
+                <button onClick={() => saveSession({ goToHistory: true })} disabled={isSaving} style={{ background: '#111', border: '1.5px solid #2a2a2a', color: isSaving ? '#444' : '#aaa', padding: '18px 8px', borderRadius: 14, fontSize: 11, letterSpacing: 2, cursor: isSaving ? 'default' : 'pointer', fontWeight: 600 }}>
+                  SAVE & VIEW →
+                </button>
+              </div>
             )}
           </>
         )}
@@ -754,7 +765,7 @@ export default function App() {
                           <div key={i} style={{ padding: '12px 16px', borderBottom: i < s.lifts.length - 1 ? '1px solid #141414' : 'none' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
                               <div style={{ fontSize: 14, color: '#ccc' }}>{l.exercise}</div>
-                              {pr && <div style={{ background: pr.weightPR ? '#f59e0b22' : '#22c55e22', color: pr.weightPR ? '#f59e0b' : '#22c55e', border: `1px solid ${pr.weightPR ? '#f59e0b66' : '#22c55e66'}`, fontSize: 11, padding: '5px 9px', borderRadius: 6, letterSpacing: 1, fontWeight: 600 }}>{pr.weightPR ? '🔥 WEIGHT PR' : '📈 VOL PR'}</div>}
+                              {pr && <div style={{ background: pr.weightPR ? '#f59e0b22' : '#06b6d422', color: pr.weightPR ? '#f59e0b' : '#06b6d4', border: `1px solid ${pr.weightPR ? '#f59e0b66' : '#06b6d466'}`, fontSize: 11, padding: '5px 9px', borderRadius: 6, letterSpacing: 1, fontWeight: 600 }}>{pr.weightPR ? '🔥 WEIGHT PR' : '📈 REP PR'}</div>}
                             </div>
                             <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                               {l.sets.map((x, j) => <span key={j} style={{ background: c + '18', border: `1px solid ${c}33`, borderRadius: 6, padding: '5px 11px', fontSize: 13, color: c }}>S{j + 1}:{fmtW(x.weight)}×{x.reps}</span>)}
