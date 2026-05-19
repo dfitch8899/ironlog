@@ -487,10 +487,12 @@ export default function App() {
   const trend = useMemo(() => analyzeTrend(progressData), [progressData])
 
   // Per-exercise progress: latest session vs previous occurrence. Used by the TRENDS view.
+  // Keyed by (day, exercise) so the same exercise performed on different split days
+  // is tracked as separate progressions — prev→now stays within the same day.
   const exerciseProgress = useMemo(() => {
     const groups = {}
     sessions.forEach(s => s.lifts.forEach(l => {
-      const key = l.exercise.toLowerCase().trim()
+      const key = `${s.day}::${l.exercise.toLowerCase().trim()}`
       if (!groups[key]) groups[key] = []
       groups[key].push({ session: s, lift: l, displayName: l.exercise })
     }))
@@ -536,7 +538,7 @@ export default function App() {
       }
       result.push(row)
     })
-    result.sort((a, b) => b.latestDate.localeCompare(a.latestDate) || b.latestSessionId - a.latestSessionId || a.name.localeCompare(b.name))
+    result.sort((a, b) => a.name.localeCompare(b.name) || a.day.localeCompare(b.day) || b.latestDate.localeCompare(a.latestDate))
     return result
   }, [sessions])
 
@@ -836,7 +838,7 @@ export default function App() {
                     'new':  { color: '#a855f7', label: 'NEW',               Ic: IconSpark },
                   }[r.status]
                   return (
-                    <div key={r.name + r.latestSessionId} className="session-card card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 14, marginBottom: 10, overflow: 'hidden', animationDelay: `${Math.min(idx, 8) * 35}ms` }}>
+                    <div key={r.day + '::' + r.name + '::' + r.latestSessionId} className="session-card card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 14, marginBottom: 10, overflow: 'hidden', animationDelay: `${Math.min(idx, 8) * 35}ms` }}>
                       <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
                         <div style={{ width: 4, height: 50, borderRadius: 2, background: dayColor, flexShrink: 0, boxShadow: `0 0 12px ${dayColor}66` }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
