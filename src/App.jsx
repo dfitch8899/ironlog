@@ -8,9 +8,15 @@ const COLORS = {
   Push: '#ef4444', Pull: '#3b82f6', Legs: '#22c55e',
   'Forearms/Abs': '#f59e0b', Upper: '#a855f7', Lower: '#06b6d4',
 }
+const GYM_CUTOVER = '2026-05-31'                 // first day at Ping (inclusive)
+const GYMS = ['Planet Fitness', 'Ping']
+const GYM_META = {
+  'Planet Fitness': { short: 'PF',   color: '#a855f7' },
+  'Ping':           { short: 'PING', color: '#14b8a6' },
+}
 const SEED = [
   {
-    id: 1747180800004, date: '2025-05-14', day: 'Forearms/Abs',
+    id: 1747180800004, date: '2025-05-14', day: 'Forearms/Abs', gym: 'Planet Fitness',
     lifts: [
       { exercise: 'Shoulder Press',            sets: [{ weight: 185,  reps: 5  }, { weight: 185, reps: 5  }] },
       { exercise: 'Forearm Curls (Bilateral)', sets: [{ weight: 72.5, reps: 12 }, { weight: 80,  reps: 10 }] },
@@ -21,7 +27,7 @@ const SEED = [
     ],
   },
   {
-    id: 1747094400003, date: '2025-05-13', day: 'Legs',
+    id: 1747094400003, date: '2025-05-13', day: 'Legs', gym: 'Planet Fitness',
     lifts: [
       { exercise: 'Leg Press',               sets: [{ weight: 390, reps: 9  }, { weight: 390, reps: 9  }] },
       { exercise: 'Calf Extension',          sets: [{ weight: 390, reps: 10 }] },
@@ -32,7 +38,7 @@ const SEED = [
     ],
   },
   {
-    id: 1747008000002, date: '2025-05-12', day: 'Pull',
+    id: 1747008000002, date: '2025-05-12', day: 'Pull', gym: 'Planet Fitness',
     lifts: [
       { exercise: 'Preacher Curls',     sets: [{ weight: 190, reps: 7  }, { weight: 190, reps: 7  }] },
       { exercise: 'Smith Rows',         sets: [{ weight: 145, reps: 8  }, { weight: 145, reps: 8  }] },
@@ -43,7 +49,7 @@ const SEED = [
     ],
   },
   {
-    id: 1746921600001, date: '2025-05-11', day: 'Push',
+    id: 1746921600001, date: '2025-05-11', day: 'Push', gym: 'Planet Fitness',
     lifts: [
       { exercise: 'Pec Deck',         sets: [{ weight: 220, reps: 7  }, { weight: 220, reps: 7  }] },
       { exercise: 'Rear Delt Flies',  sets: [{ weight: 175, reps: 8  }, { weight: 175, reps: 7  }] },
@@ -61,6 +67,8 @@ const fmt   = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month
 const fmtF  = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 const dc    = o => JSON.parse(JSON.stringify(o))
 const sortS = arr => [...arr].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+const gymForDate = d => (d >= GYM_CUTOVER ? 'Ping' : 'Planet Fitness')  // ISO string compare
+const gymOf = s => s.gym || gymForDate(s.date)                          // backfills legacy records
 const liftVolume = l => l.sets.reduce((a, x) => a + x.weight * x.reps, 0)
 const liftMaxWeight = l => Math.max(...l.sets.map(x => x.weight))
 const bestSet = l => l.sets.reduce(
@@ -271,6 +279,7 @@ function LiftBuilder({ lift, color, day, exerciseHistory, dayExercises = [], las
 function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, onSave, onClose }) {
   const [date, setDate]   = useState(session.date)
   const [day, setDay]     = useState(session.day)
+  const [gym, setGym]     = useState(gymOf(session))
   const [lifts, setLifts] = useState(dc(session.lifts))
   const [editIdx, setEditIdx]     = useState(null)
   const [addingNew, setAddingNew] = useState(false)
@@ -287,6 +296,14 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
       </div>
       <div style={{ padding: '16px' }}>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ ...IS, color: '#888', marginBottom: 12 }} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+          {GYMS.map(g => {
+            const gc = GYM_META[g].color
+            return (
+              <button key={g} onClick={() => setGym(g)} style={{ background: gym === g ? gc + '22' : '#0e0e0e', border: `1.5px solid ${gym === g ? gc + 'aa' : '#1e1e1e'}`, color: gym === g ? gc : '#7a7a7a', padding: '13px 6px', borderRadius: 11, fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", boxShadow: gym === g ? `0 0 18px ${gc}33, inset 0 1px 0 ${gc}22` : 'inset 0 1px 0 rgba(255,255,255,0.02)' }}>{g}</button>
+            )
+          })}
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 20 }}>
           {SPLIT_DAYS.map(d => (
             <button key={d} onClick={() => setDay(d)} style={{ background: day === d ? COLORS[d] + '22' : '#0e0e0e', border: `1.5px solid ${day === d ? COLORS[d] + 'aa' : '#1e1e1e'}`, color: day === d ? COLORS[d] : '#7a7a7a', padding: '15px 6px', borderRadius: 11, fontSize: 13, fontWeight: 600, fontFamily: "'DM Mono', monospace", boxShadow: day === d ? `0 0 18px ${COLORS[d]}33, inset 0 1px 0 ${COLORS[d]}22` : 'inset 0 1px 0 rgba(255,255,255,0.02)' }}>{d}</button>
@@ -321,7 +338,7 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
       </div>
       {!addingNew && editIdx === null && (
         <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, padding: '12px 16px calc(env(safe-area-inset-bottom, 0px) + 16px)', background: '#0d0d0d', borderTop: '1px solid #161616' }}>
-          <button onClick={() => onSave({ ...session, date, day, lifts })} style={{ width: '100%', background: 'linear-gradient(180deg,#ffffff 0%,#e8e8e8 100%)', border: 'none', color: '#000', padding: '18px', borderRadius: 14, fontSize: 13, letterSpacing: 3, cursor: 'pointer', fontWeight: 700, fontFamily: "'DM Mono', monospace", boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 4px 16px rgba(0,0,0,0.5), 0 1px 0 rgba(0,0,0,0.2)' }}>SAVE CHANGES →</button>
+          <button onClick={() => onSave({ ...session, date, day, gym, lifts })} style={{ width: '100%', background: 'linear-gradient(180deg,#ffffff 0%,#e8e8e8 100%)', border: 'none', color: '#000', padding: '18px', borderRadius: 14, fontSize: 13, letterSpacing: 3, cursor: 'pointer', fontWeight: 700, fontFamily: "'DM Mono', monospace", boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 4px 16px rgba(0,0,0,0.5), 0 1px 0 rgba(0,0,0,0.2)' }}>SAVE CHANGES →</button>
         </div>
       )}
     </div>
@@ -353,6 +370,22 @@ function SetupRequired() {
   )
 }
 
+// ── GymFilter ─────────────────────────────────────────────────────────────
+// Horizontal chip row (ALL / each gym) used to scope the Trends & Progress views.
+function GymFilter({ value, onChange }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 14, paddingBottom: 4, marginLeft: -16, marginRight: -16, paddingLeft: 16, paddingRight: 16 }}>
+      {['ALL', ...GYMS].map(g => {
+        const active = value === g
+        const c = g === 'ALL' ? '#fff' : GYM_META[g].color
+        return (
+          <button key={g} onClick={() => onChange(g)} style={{ flexShrink: 0, background: active ? (g === 'ALL' ? '#fff' : c + '22') : '#0e0e0e', border: `1.5px solid ${active ? (g === 'ALL' ? '#fff' : c + 'aa') : '#1e1e1e'}`, color: active ? (g === 'ALL' ? '#000' : c) : '#7a7a7a', padding: '8px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600, letterSpacing: 1, fontFamily: "'DM Mono', monospace", boxShadow: active && g !== 'ALL' ? `0 0 14px ${c}33` : 'none' }}>{g === 'ALL' ? 'ALL GYMS' : g}</button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Main App ──────────────────────────────────────────────────────────────
 export default function App() {
   const [status, setStatus]     = useState(isConfigured() ? 'loading' : 'unconfigured')
@@ -362,6 +395,7 @@ export default function App() {
   const [view, setView]               = useState('history')
   const [formDay, setFormDay]         = useState('Push')
   const [formDate, setFormDate]       = useState(todayStr())
+  const [formGym, setFormGym]         = useState(gymForDate(todayStr()))
   const [pending, setPending]         = useState([])
   const [addingLift, setAddingLift]   = useState(false)
   const [editPendIdx, setEditPendIdx] = useState(null)
@@ -369,6 +403,7 @@ export default function App() {
   const [progressEx, setProgressEx]   = useState('')
   const [metric, setMetric]           = useState('maxWeight')
   const [trendFilter, setTrendFilter] = useState('ALL')
+  const [gymFilter, setGymFilter]     = useState('ALL')
   const [flash, setFlash]             = useState(null)
 
   const flashTimer = useRef(null)
@@ -413,6 +448,12 @@ export default function App() {
   const allExercises = useMemo(
     () => [...new Set(sessions.flatMap(s => s.lifts.map(l => l.exercise)))].sort(),
     [sessions]
+  )
+
+  // Sessions narrowed to the selected gym — feeds the Trends & Progress analytics.
+  const statsSessions = useMemo(
+    () => gymFilter === 'ALL' ? sessions : sessions.filter(s => gymOf(s) === gymFilter),
+    [sessions, gymFilter]
   )
 
   // For each split day, ordered list of exercises ever done on that day (most-recently-used first)
@@ -472,7 +513,7 @@ export default function App() {
 
   const progressData = useMemo(() => {
     if (!progressEx) return []
-    return sessions
+    return statsSessions
       .filter(s => s.lifts.some(l => eqEx(l.exercise, progressEx)))
       .map(s => {
         const lift = s.lifts.find(l => eqEx(l.exercise, progressEx))
@@ -489,7 +530,7 @@ export default function App() {
   // Per-exercise progress: latest session vs previous occurrence. Used by the TRENDS view.
   const exerciseProgress = useMemo(() => {
     const groups = {}
-    sessions.forEach(s => s.lifts.forEach(l => {
+    statsSessions.forEach(s => s.lifts.forEach(l => {
       const key = l.exercise.toLowerCase().trim()
       if (!groups[key]) groups[key] = []
       groups[key].push({ session: s, lift: l, displayName: l.exercise })
@@ -538,7 +579,7 @@ export default function App() {
     })
     result.sort((a, b) => b.latestDate.localeCompare(a.latestDate) || b.latestSessionId - a.latestSessionId || a.name.localeCompare(b.name))
     return result
-  }, [sessions])
+  }, [statsSessions])
 
   const trendCounts = useMemo(() => {
     const c = { up: 0, same: 0, down: 0, new: 0 }
@@ -575,7 +616,7 @@ export default function App() {
 
   const saveSession = async ({ goToHistory = false } = {}) => {
     if (!pending.length) return showFlash('Add at least one lift', 'err')
-    const s = { id: Date.now(), date: formDate, day: formDay, lifts: pending }
+    const s = { id: Date.now(), date: formDate, day: formDay, gym: formGym, lifts: pending }
     const result = await commitSessions([s, ...sessions])
     if (result) {
       vibrate(20)
@@ -680,7 +721,15 @@ export default function App() {
 
         {view === 'log' && (
           <>
-            <input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} style={{ ...IS, color: '#888', marginBottom: 14 }} />
+            <input type="date" value={formDate} onChange={e => { setFormDate(e.target.value); setFormGym(gymForDate(e.target.value)) }} style={{ ...IS, color: '#888', marginBottom: 12 }} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+              {GYMS.map(g => {
+                const gc = GYM_META[g].color
+                return (
+                  <button key={g} onClick={() => setFormGym(g)} style={{ background: formGym === g ? gc + '22' : '#0e0e0e', border: `1.5px solid ${formGym === g ? gc + 'aa' : '#1e1e1e'}`, color: formGym === g ? gc : '#7a7a7a', padding: '13px 6px', borderRadius: 11, fontSize: 13, fontWeight: 600, boxShadow: formGym === g ? `0 0 18px ${gc}33, inset 0 1px 0 ${gc}22` : 'inset 0 1px 0 rgba(255,255,255,0.02)' }}>{g}</button>
+                )
+              })}
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 20 }}>
               {SPLIT_DAYS.map(d => (
                 <button key={d} onClick={() => setFormDay(d)} style={{ background: formDay === d ? COLORS[d] + '22' : '#0e0e0e', border: `1.5px solid ${formDay === d ? COLORS[d] + 'aa' : '#1e1e1e'}`, color: formDay === d ? COLORS[d] : '#7a7a7a', padding: '15px 6px', borderRadius: 11, fontSize: 13, fontWeight: 600, boxShadow: formDay === d ? `0 0 18px ${COLORS[d]}33, inset 0 1px 0 ${COLORS[d]}22` : 'inset 0 1px 0 rgba(255,255,255,0.02)' }}>{d}</button>
@@ -744,6 +793,7 @@ export default function App() {
               const c = COLORS[s.day], isOpen = expandedId === s.id
               const vol = s.lifts.reduce((acc, l) => acc + liftVolume(l), 0)
               const hasPR = s.lifts.some((_, i) => prMap[`${s.id}-${i}`])
+              const gm = GYM_META[gymOf(s)]
               return (
                 <div key={s.id} className="session-card card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 14, marginBottom: 10, overflow: 'hidden', animationDelay: `${Math.min(idx, 8) * 40}ms` }}>
                   <button onClick={() => setExpandedId(isOpen ? null : s.id)} style={{ width: '100%', background: 'none', border: 'none', padding: '15px 16px', display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left' }}>
@@ -751,6 +801,7 @@ export default function App() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ fontFamily: "'Bebas Neue'", fontSize: 20, letterSpacing: 2, color: '#fff' }}>{fmtF(s.date)}</div>
+                        <span style={{ background: gm.color + '22', border: `1px solid ${gm.color}55`, color: gm.color, fontSize: 9, fontWeight: 700, letterSpacing: 1, padding: '2px 7px', borderRadius: 5 }}>{gm.short}</span>
                         {hasPR && <span style={{ fontSize: 12 }}>🔥</span>}
                       </div>
                       <div style={{ fontSize: 12, color: '#9a9a9a', marginTop: 3 }}><span style={{ color: c, fontWeight: 600 }}>{s.day}</span> · {s.lifts.length} lifts · {vol.toLocaleString()} lbs</div>
@@ -791,8 +842,9 @@ export default function App() {
 
         {view === 'trends' && (
           <>
+            <GymFilter value={gymFilter} onChange={setGymFilter} />
             {exerciseProgress.length === 0 ? (
-              <div style={{ textAlign: 'center', color: '#555', fontSize: 14, padding: '80px 0' }}>Log some sessions first.</div>
+              <div style={{ textAlign: 'center', color: '#555', fontSize: 14, padding: '80px 0' }}>{gymFilter === 'ALL' ? 'Log some sessions first.' : `No sessions logged at ${gymFilter} yet.`}</div>
             ) : (
               <>
                 <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 12 }}>SESSION-OVER-SESSION</div>
@@ -881,6 +933,7 @@ export default function App() {
 
         {view === 'progress' && (
           <>
+            <GymFilter value={gymFilter} onChange={setGymFilter} />
             <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 8 }}>SELECT EXERCISE</div>
             <select value={progressEx} onChange={e => setProgressEx(e.target.value)} style={{ ...IS, color: progressEx ? '#e0e0e0' : '#666' }}>
               <option value="">— Pick an exercise —</option>
@@ -932,6 +985,7 @@ export default function App() {
                 ))}
               </>
             )}
+            {progressEx && progressData.length === 0 && <div style={{ color: '#555', textAlign: 'center', padding: '60px 0', fontSize: 14 }}>No {progressEx} sessions at {gymFilter === 'ALL' ? 'any gym' : gymFilter} yet.</div>}
             {!progressEx && allExercises.length === 0 && <div style={{ color: '#555', textAlign: 'center', padding: '60px 0', fontSize: 14 }}>Log sessions first.</div>}
           </>
         )}
