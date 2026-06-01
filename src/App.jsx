@@ -132,6 +132,7 @@ const IconArrowUp  = p => <Icon {...p} d={<><line x1="7" y1="17" x2="17" y2="7" 
 const IconArrowDn  = p => <Icon {...p} d={<><line x1="7" y1="7" x2="17" y2="17" /><polyline points="17 9 17 17 9 17" /></>} />
 const IconDash     = p => <Icon {...p} d={<line x1="6" y1="12" x2="18" y2="12" />} />
 const IconSpark    = p => <Icon {...p} d={<polygon points="12 3 14 10 21 12 14 14 12 21 10 14 3 12 10 10" />} />
+const IconActivity = p => <Icon {...p} d={<polyline points="3 12 7 12 10 4 14 20 17 12 21 12" />} />
 
 // ── shared input style ──────────────────────────────────────────────────
 const IS = {
@@ -401,6 +402,7 @@ export default function App() {
   const [editPendIdx, setEditPendIdx] = useState(null)
   const [expandedId, setExpandedId]   = useState(null)
   const [progressEx, setProgressEx]   = useState('')
+  const [chartEx, setChartEx]         = useState('')
   const [metric, setMetric]           = useState('maxWeight')
   const [trendFilter, setTrendFilter] = useState('ALL')
   const [gymFilter, setGymFilter]     = useState('ALL')
@@ -526,6 +528,25 @@ export default function App() {
   }, [sessions, progressEx])
 
   const trend = useMemo(() => analyzeTrend(progressData), [progressData])
+
+  // Per-session series for the CHARTS tab: weight + reps + volume + raw sets, oldest → newest.
+  const chartData = useMemo(() => {
+    if (!chartEx) return []
+    return statsSessions
+      .filter(s => s.lifts.some(l => eqEx(l.exercise, chartEx)))
+      .map(s => {
+        const lift = s.lifts.find(l => eqEx(l.exercise, chartEx))
+        const reps = lift.sets.reduce((a, b) => a + b.reps, 0)
+        return {
+          date: fmt(s.date), fullDate: s.date, day: s.day, gym: gymOf(s),
+          maxWeight: liftMaxWeight(lift),
+          avgWeight: +(lift.sets.reduce((a, b) => a + b.weight, 0) / lift.sets.length).toFixed(1),
+          volume: liftVolume(lift),
+          reps,
+          sets: lift.sets,
+        }
+      }).reverse()
+  }, [statsSessions, chartEx])
 
   // Per-exercise progress: latest session vs previous occurrence. Used by the TRENDS view.
   const exerciseProgress = useMemo(() => {
@@ -989,10 +1010,81 @@ export default function App() {
             {!progressEx && allExercises.length === 0 && <div style={{ color: '#555', textAlign: 'center', padding: '60px 0', fontSize: 14 }}>Log sessions first.</div>}
           </>
         )}
+
+        {view === 'charts' && (
+          <>
+            <GymFilter value={gymFilter} onChange={setGymFilter} />
+            <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 8 }}>SELECT EXERCISE</div>
+            <select value={chartEx} onChange={e => setChartEx(e.target.value)} style={{ ...IS, color: chartEx ? '#e0e0e0' : '#666' }}>
+              <option value="">— Pick an exercise —</option>
+              {allExercises.map(e => <option key={e} value={e}>{e}</option>)}
+            </select>
+
+            {chartEx && chartData.length > 0 && (
+              <>
+                {/* Weight + reps over time (dual axis) */}
+                <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, margin: '6px 0 8px' }}>WEIGHT & REPS OVER TIME</div>
+                <div style={{ display: 'flex', gap: 16, marginBottom: 8 }}>
+                  {[['#22c55e', 'MAX WEIGHT'], ['#3b82f6', 'TOTAL REPS']].map(([c, l]) => (
+                    <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 18, height: 3, borderRadius: 2, background: c, boxShadow: `0 0 8px ${c}88` }} />
+                      <span style={{ fontSize: 10, letterSpacing: 1, color: c, fontWeight: 600 }}>{l}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 14, padding: '16px 4px 8px', marginBottom: 16 }}>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={chartData} margin={{ left: 0, right: 0 }}>
+                      <XAxis dataKey="date" tick={{ fill: '#888', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} />
+                      <YAxis yAxisId="w" tick={{ fill: '#22c55e', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} width={40} />
+                      <YAxis yAxisId="r" orientation="right" tick={{ fill: '#3b82f6', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
+                      <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', fontFamily: 'DM Mono', fontSize: 12, color: '#fff', borderRadius: 8 }} labelStyle={{ color: '#888' }} />
+                      <Line yAxisId="w" type="monotone" dataKey="maxWeight" name="max wt (lb)" stroke="#22c55e" strokeWidth={2.5} dot={{ fill: '#22c55e', r: 3, strokeWidth: 0 }} activeDot={{ r: 6, fill: '#22c55e' }} />
+                      <Line yAxisId="r" type="monotone" dataKey="reps" name="total reps" stroke="#3b82f6" strokeWidth={2.5} dot={{ fill: '#3b82f6', r: 3, strokeWidth: 0 }} activeDot={{ r: 6, fill: '#3b82f6' }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Volume over time */}
+                <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, margin: '6px 0 8px' }}>VOLUME OVER TIME</div>
+                <div className="card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 14, padding: '16px 4px 8px', marginBottom: 16 }}>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <LineChart data={chartData} margin={{ left: 0, right: 8 }}>
+                      <XAxis dataKey="date" tick={{ fill: '#888', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: '#f59e0b', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} width={44} />
+                      <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', fontFamily: 'DM Mono', fontSize: 12, color: '#fff', borderRadius: 8 }} labelStyle={{ color: '#888' }} />
+                      <Line type="monotone" dataKey="volume" name="volume (lb)" stroke="#f59e0b" strokeWidth={2.5} dot={{ fill: '#f59e0b', r: 3, strokeWidth: 0 }} activeDot={{ r: 6, fill: '#f59e0b' }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Set-by-set detail */}
+                <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 10 }}>SET BY SET</div>
+                {[...chartData].reverse().map((d, i) => {
+                  const c = COLORS[d.day]
+                  return (
+                    <div key={i} className="card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 12, padding: '12px 14px', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <div style={{ fontSize: 13, color: '#ddd', fontWeight: 500 }}>{d.date}</div>
+                        <div style={{ fontSize: 11, color: '#888' }}><span style={{ color: c, fontWeight: 600 }}>{d.day}</span> · vol {d.volume.toLocaleString()}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                        {d.sets.map((x, j) => <span key={j} style={{ background: c + '18', border: `1px solid ${c}33`, borderRadius: 6, padding: '5px 11px', fontSize: 13, color: c }}>S{j + 1}:{fmtW(x.weight)}×{x.reps}</span>)}
+                      </div>
+                    </div>
+                  )
+                })}
+              </>
+            )}
+
+            {chartEx && chartData.length === 0 && <div style={{ color: '#555', textAlign: 'center', padding: '60px 0', fontSize: 14 }}>No {chartEx} sessions at {gymFilter === 'ALL' ? 'any gym' : gymFilter} yet.</div>}
+            {!chartEx && allExercises.length === 0 && <div style={{ color: '#555', textAlign: 'center', padding: '60px 0', fontSize: 14 }}>Log sessions first.</div>}
+          </>
+        )}
       </div>
 
       <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: 'rgba(13,13,13,0.92)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', borderTop: '1px solid #1f1f1f', display: 'flex', zIndex: 20, paddingBottom: 'env(safe-area-inset-bottom,8px)', boxShadow: '0 -8px 24px rgba(0,0,0,0.5)' }}>
-        {[['log', IconPlus, 'LOG'], ['history', IconList, 'HISTORY'], ['trends', IconBars, 'TRENDS'], ['progress', IconTrending, 'PROGRESS']].map(([k, Ic, label]) => {
+        {[['log', IconPlus, 'LOG'], ['history', IconList, 'HISTORY'], ['trends', IconBars, 'TRENDS'], ['progress', IconTrending, 'PROGRESS'], ['charts', IconActivity, 'CHARTS']].map(([k, Ic, label]) => {
           const active = view === k
           return (
             <button key={k} onClick={() => setView(k)} style={{ flex: 1, background: 'none', border: 'none', color: active ? '#fff' : '#666', padding: '14px 0 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, minHeight: 60, position: 'relative' }}>
