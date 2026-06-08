@@ -67,6 +67,9 @@ const fmt   = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month
 const fmtF  = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 const dc    = o => JSON.parse(JSON.stringify(o))
 const sortS = arr => [...arr].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
+// Parse a session date to a comparable timestamp. Robust to legacy/non-padded date
+// strings (e.g. '2025-5-9') that would mis-order under a plain lexical string compare.
+const dateVal = d => { const t = new Date(d + 'T00:00:00').getTime(); return isNaN(t) ? (new Date(d).getTime() || 0) : t }
 const gymForDate = d => (d >= GYM_CUTOVER ? 'Ping' : 'Planet Fitness')  // ISO string compare
 const gymOf = s => s.gym || gymForDate(s.date)                          // backfills legacy records
 const liftVolume = l => l.sets.reduce((a, x) => a + x.weight * x.reps, 0)
@@ -513,7 +516,7 @@ export default function App() {
       .map(s => {
         const lift = s.lifts.find(l => eqEx(l.exercise, progressEx))
         const top = bestSet(lift)
-        return { date: fmt(s.date), fullDate: s.date, day: s.day, topW: top.weight, topR: top.reps, sets: lift.sets }
+        return { date: fmt(s.date), fullDate: s.date, day: s.day, topW: top.weight, topR: top.reps, sets: lift.sets, session: s }
       })
       .reverse()
     let bestW = 0, bestR = 0
@@ -541,7 +544,7 @@ export default function App() {
     }))
     const result = []
     Object.values(groups).forEach(arr => {
-      arr.sort((a, b) => b.session.date.localeCompare(a.session.date) || b.session.id - a.session.id)
+      arr.sort((a, b) => dateVal(b.session.date) - dateVal(a.session.date) || Number(b.session.id) - Number(a.session.id))
       const latest = arr[0]
       const latestBest = bestSet(latest.lift)
       const latestVol  = liftVolume(latest.lift)
@@ -581,7 +584,7 @@ export default function App() {
       }
       result.push(row)
     })
-    result.sort((a, b) => b.latestDate.localeCompare(a.latestDate) || b.latestSessionId - a.latestSessionId || a.name.localeCompare(b.name))
+    result.sort((a, b) => dateVal(b.latestDate) - dateVal(a.latestDate) || Number(b.latestSessionId) - Number(a.latestSessionId) || a.name.localeCompare(b.name))
     return result
   }, [statsSessions])
 
@@ -999,6 +1002,7 @@ export default function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           {d.isPR && <span style={{ background: d.weightPR ? '#f59e0b22' : '#06b6d422', color: d.weightPR ? '#f59e0b' : '#06b6d4', border: `1px solid ${d.weightPR ? '#f59e0b66' : '#06b6d466'}`, fontSize: 10, padding: '3px 7px', borderRadius: 5, fontWeight: 600, letterSpacing: 1 }}>{d.weightPR ? '🔥 WT PR' : '📈 REP PR'}</span>}
                           <span style={{ fontSize: 11, color: c, fontWeight: 600 }}>{d.day}</span>
+                          <button onClick={() => setEditSess(d.session)} style={{ background: '#1e1e1e', border: 'none', color: '#888', padding: '6px 12px', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontFamily: "'DM Mono', monospace", letterSpacing: 1 }}>EDIT</button>
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
