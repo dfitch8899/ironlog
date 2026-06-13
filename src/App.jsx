@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { dbRead, dbWrite, dbSubscribe, isConfigured } from './firebase.js'
+import { dbRead, dbWrite, dbSubscribe, isConfigured, subscribeAuth, signInWithGoogle, signOutUser } from './firebase.js'
 
 // ── constants ─────────────────────────────────────────────────────────────
 const SPLIT_DAYS = ['Push', 'Pull', 'Legs', 'Forearms/Abs', 'Upper', 'Lower']
@@ -14,53 +14,6 @@ const GYM_META = {
   'Planet Fitness': { short: 'PF',   color: '#a855f7' },
   'Ping':           { short: 'PING', color: '#14b8a6' },
 }
-const SEED = [
-  {
-    id: 1747180800004, date: '2025-05-14', day: 'Forearms/Abs', gym: 'Planet Fitness',
-    lifts: [
-      { exercise: 'Shoulder Press',            sets: [{ weight: 185,  reps: 5  }, { weight: 185, reps: 5  }] },
-      { exercise: 'Forearm Curls (Bilateral)', sets: [{ weight: 72.5, reps: 12 }, { weight: 80,  reps: 10 }] },
-      { exercise: 'Unilateral Forearm Curls',  sets: [{ weight: 35,   reps: 10 }] },
-      { exercise: 'Ab Crunch',                 sets: [{ weight: 115,  reps: 12 }, { weight: 115, reps: 12 }] },
-      { exercise: 'Reverse Wrist Curls',       sets: [{ weight: 20,   reps: 10 }, { weight: 20,  reps: 10 }] },
-      { exercise: 'Leg Raise',                 sets: [{ weight: 0,    reps: 20 }, { weight: 0,   reps: 20 }] },
-    ],
-  },
-  {
-    id: 1747094400003, date: '2025-05-13', day: 'Legs', gym: 'Planet Fitness',
-    lifts: [
-      { exercise: 'Leg Press',               sets: [{ weight: 390, reps: 9  }, { weight: 390, reps: 9  }] },
-      { exercise: 'Calf Extension',          sets: [{ weight: 390, reps: 10 }] },
-      { exercise: 'Leg Extension',           sets: [{ weight: 285, reps: 10 }, { weight: 295, reps: 6  }] },
-      { exercise: 'Single Leg Leg Extension',sets: [{ weight: 130, reps: 8  }] },
-      { exercise: 'Lying Leg Curl',          sets: [{ weight: 170, reps: 8  }, { weight: 170, reps: 7  }] },
-      { exercise: 'Cable Crunch',            sets: [{ weight: 105, reps: 12 }, { weight: 105, reps: 12 }] },
-    ],
-  },
-  {
-    id: 1747008000002, date: '2025-05-12', day: 'Pull', gym: 'Planet Fitness',
-    lifts: [
-      { exercise: 'Preacher Curls',     sets: [{ weight: 190, reps: 7  }, { weight: 190, reps: 7  }] },
-      { exercise: 'Smith Rows',         sets: [{ weight: 145, reps: 8  }, { weight: 145, reps: 8  }] },
-      { exercise: 'Recline Curl',       sets: [{ weight: 35,  reps: 10 }, { weight: 40,  reps: 6  }] },
-      { exercise: 'Cable Lat Pulldown', sets: [{ weight: 90,  reps: 8  }, { weight: 90,  reps: 8  }] },
-      { exercise: 'Bayesian Curl',      sets: [{ weight: 35,  reps: 8  }] },
-      { exercise: 'Kelsos',             sets: [{ weight: 205, reps: 10 }, { weight: 205, reps: 10 }] },
-    ],
-  },
-  {
-    id: 1746921600001, date: '2025-05-11', day: 'Push', gym: 'Planet Fitness',
-    lifts: [
-      { exercise: 'Pec Deck',         sets: [{ weight: 220, reps: 7  }, { weight: 220, reps: 7  }] },
-      { exercise: 'Rear Delt Flies',  sets: [{ weight: 175, reps: 8  }, { weight: 175, reps: 7  }] },
-      { exercise: 'Tricep Extension', sets: [{ weight: 35,  reps: 10 }, { weight: 38,  reps: 8  }] },
-      { exercise: 'Lat Raise',        sets: [{ weight: 28,  reps: 8  }, { weight: 28,  reps: 8  }] },
-      { exercise: 'Y Raise',          sets: [{ weight: 28,  reps: 9  }, { weight: 28,  reps: 9  }] },
-      { exercise: 'JM Press',         sets: [{ weight: 68,  reps: 10 }, { weight: 73,  reps: 10 }] },
-    ],
-  },
-]
-
 // ── helpers ───────────────────────────────────────────────────────────────
 const todayStr = () => new Date().toISOString().split('T')[0]
 const fmt   = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -366,6 +319,46 @@ function SetupRequired() {
   )
 }
 
+// ── Sign In Screen ────────────────────────────────────────────────────────
+// Gate shown when Firebase is configured but no one is signed in. The locked
+// security rules only allow the owner's account, so sign-in is required before
+// any data can be read or written.
+function SignInScreen() {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr]   = useState('')
+  const go = async () => {
+    setBusy(true); setErr('')
+    try {
+      await signInWithGoogle()
+      // On success onAuthStateChanged unmounts this screen; no need to reset busy.
+    } catch (e) {
+      setBusy(false)
+      setErr(
+        e?.code === 'auth/popup-closed-by-user' || e?.code === 'auth/cancelled-popup-request' ? 'Sign-in cancelled.'
+        : e?.code === 'auth/popup-blocked' ? 'Your browser blocked the sign-in popup — allow popups for this site and try again.'
+        : e?.code === 'auth/network-request-failed' ? 'Network error — check your connection and try again.'
+        : e?.code === 'auth/unauthorized-domain' ? 'This domain isn’t authorized in Firebase Auth settings.'
+        : e?.code === 'auth/operation-not-allowed' ? 'Google sign-in isn’t enabled in the Firebase console yet.'
+        : (e?.message || 'Sign-in failed. Try again.')
+      )
+    }
+  }
+  return (
+    <div style={{ background: '#090909', minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: "'DM Mono', monospace", color: '#e0e0e0' }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Bebas+Neue&display=swap');*{box-sizing:border-box;}`}</style>
+      <div style={{ fontFamily: "'Bebas Neue'", fontSize: 48, letterSpacing: 8, color: '#fff', lineHeight: 1 }}>IRON LOG</div>
+      <div style={{ fontSize: 10, color: '#2e2e2e', letterSpacing: 3, marginTop: 4, marginBottom: 40 }}>PRIVATE · OWNER ACCESS ONLY</div>
+
+      <button onClick={go} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fff', border: 'none', color: '#1a1a1a', padding: '15px 26px', borderRadius: 12, fontSize: 14, fontWeight: 700, letterSpacing: 1, fontFamily: "'DM Mono', monospace", opacity: busy ? 0.6 : 1, cursor: busy ? 'default' : 'pointer' }}>
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62Z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.02-3.7H.96v2.34A9 9 0 0 0 9 18Z"/><path fill="#FBBC05" d="M3.98 10.72a5.4 5.4 0 0 1 0-3.44V4.94H.96a9 9 0 0 0 0 8.12l3.02-2.34Z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.46 3.44 1.35l2.58-2.58A9 9 0 0 0 .96 4.94l3.02 2.34C4.68 5.16 6.66 3.58 9 3.58Z"/></svg>
+        {busy ? 'SIGNING IN…' : 'SIGN IN WITH GOOGLE'}
+      </button>
+
+      {err && <div style={{ marginTop: 20, maxWidth: 320, textAlign: 'center', fontSize: 12, color: '#fca5a5', lineHeight: 1.6 }}>{err}</div>}
+    </div>
+  )
+}
+
 // ── GymFilter ─────────────────────────────────────────────────────────────
 // Horizontal chip row (ALL / each gym) used to scope the Trends & Progress views.
 function GymFilter({ value, onChange }) {
@@ -385,6 +378,8 @@ function GymFilter({ value, onChange }) {
 // ── Main App ──────────────────────────────────────────────────────────────
 export default function App() {
   const [status, setStatus]     = useState(isConfigured() ? 'loading' : 'unconfigured')
+  const [user, setUser]         = useState(null)
+  const [authReady, setAuthReady] = useState(false)
   const [sessions, setSessions] = useState([])
   const [editSess, setEditSess] = useState(null)
 
@@ -408,37 +403,44 @@ export default function App() {
     flashTimer.current = setTimeout(() => setFlash(null), 2800)
   }, [])
 
+  // Track the signed-in user. Fires immediately with the restored session.
   useEffect(() => {
-    if (!isConfigured()) return
-
-    let isFirst = true
-    const unsub = dbSubscribe(data => {
-      const arr = Array.isArray(data) ? data : []
-      if (isFirst) {
-        isFirst = false
-        if (arr.length === 0) {
-          dbWrite(SEED).catch(() => {})
-          setSessions(sortS(SEED))
-        } else {
-          setSessions(sortS(arr))
-        }
-        setStatus('ready')
-      } else {
-        setSessions(sortS(arr))
-      }
+    if (!isConfigured()) { setAuthReady(true); return }
+    const unsub = subscribeAuth(u => {
+      if (u) console.log('[ironlog] signed in as', u.email, '· uid:', u.uid)
+      else setSessions([])
+      setUser(u)
+      setAuthReady(true)
     })
+    return unsub
+  }, [])
 
+  // Load sessions once a user is signed in. Re-runs on sign-in / sign-out.
+  // firebase.js already normalizes the payload to an array, and we never write
+  // on load — an empty result just shows the empty state, never overwrites.
+  useEffect(() => {
+    if (!isConfigured() || !user) return
+    setStatus('loading')
+
+    let settled = false
+    const load = arr => {
+      if (settled) { setSessions(sortS(arr)); return } // live update after first load
+      settled = true
+      setSessions(sortS(arr))
+      setStatus('ready')
+    }
+    const fail = () => { if (!settled) { settled = true; setStatus('error') } }
+
+    // onError surfaces a denied read (e.g. rules/UID mismatch) right away.
+    const unsub = dbSubscribe(load, fail)
+
+    // Fallback only if the first snapshot never arrives (stalled connection).
     const errTimer = setTimeout(() => {
-      if (status === 'loading') {
-        dbRead()
-          .then(d => { setSessions(sortS(Array.isArray(d) ? d : [])); setStatus('ready') })
-          .catch(() => setStatus('error'))
-      }
+      if (!settled) dbRead().then(arr => { if (!settled) load(arr) }).catch(fail)
     }, 5000)
 
     return () => { unsub(); clearTimeout(errTimer) }
-    // eslint-disable-next-line
-  }, [])
+  }, [user])
 
   const allExercises = useMemo(
     () => [...new Set(sessions.flatMap(s => s.lifts.map(l => l.exercise)))].sort(),
@@ -652,12 +654,23 @@ export default function App() {
 
   if (status === 'unconfigured') return <SetupRequired />
 
-  if (status === 'loading') return (
+  if (!authReady) return (
     <div style={{ background: '#090909', minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Mono', monospace" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap');@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       <div style={{ fontFamily: "'Bebas Neue'", fontSize: 40, letterSpacing: 8, color: '#1a1a1a', marginBottom: 24 }}>IRON LOG</div>
       <div style={{ width: 36, height: 36, border: '3px solid #1e1e1e', borderTop: '3px solid #22c55e', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
       <div style={{ color: '#333', fontSize: 11, letterSpacing: 2, marginTop: 16 }}>CONNECTING TO FIREBASE</div>
+    </div>
+  )
+
+  if (!user) return <SignInScreen />
+
+  if (status === 'loading') return (
+    <div style={{ background: '#090909', minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: "'DM Mono', monospace" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap');@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <div style={{ fontFamily: "'Bebas Neue'", fontSize: 40, letterSpacing: 8, color: '#1a1a1a', marginBottom: 24 }}>IRON LOG</div>
+      <div style={{ width: 36, height: 36, border: '3px solid #1e1e1e', borderTop: '3px solid #22c55e', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+      <div style={{ color: '#333', fontSize: 11, letterSpacing: 2, marginTop: 16 }}>LOADING SESSIONS</div>
     </div>
   )
 
@@ -1018,6 +1031,14 @@ export default function App() {
             {!progressEx && allExercises.length === 0 && <div style={{ color: '#555', textAlign: 'center', padding: '60px 0', fontSize: 14 }}>Log sessions first.</div>}
           </>
         )}
+      </div>
+
+      <div style={{ padding: '28px 16px 12px', marginTop: 8, borderTop: '1px solid #141414', textAlign: 'center' }}>
+        <div style={{ fontSize: 11, color: '#666', letterSpacing: 1 }}>
+          SIGNED IN · <span style={{ color: '#999' }}>{user.email}</span>
+        </div>
+        <button onClick={() => signOutUser().catch(() => {})} style={{ marginTop: 12, background: '#0e0e0e', border: '1px solid #1f1f1f', color: '#888', padding: '9px 20px', borderRadius: 999, fontSize: 11, letterSpacing: 1.5, fontWeight: 600, fontFamily: "'DM Mono', monospace" }}>SIGN OUT</button>
+        <div style={{ fontSize: 9, color: '#2e2e2e', letterSpacing: 0.5, marginTop: 14, wordBreak: 'break-all', lineHeight: 1.5 }}>account id · {user.uid}</div>
       </div>
 
       <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, background: 'rgba(13,13,13,0.92)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', borderTop: '1px solid #1f1f1f', display: 'flex', zIndex: 20, paddingBottom: 'env(safe-area-inset-bottom,8px)', boxShadow: '0 -8px 24px rgba(0,0,0,0.5)' }}>
