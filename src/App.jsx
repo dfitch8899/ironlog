@@ -33,8 +33,8 @@ const bestSet = l => l.sets.reduce(
   (best, s) => (s.weight > best.weight || (s.weight === best.weight && s.reps > best.reps)) ? s : best,
   { weight: 0, reps: 0 }
 )
-const eqEx = (a, b) => a.toLowerCase().trim() === b.toLowerCase().trim()
 const exKey = n => n.toLowerCase().trim()
+const eqEx = (a, b) => exKey(a) === exKey(b)
 const vibrate = (ms = 15) => navigator.vibrate?.(ms)
 const fmtW = w => w === 0 ? 'BW' : w  // bodyweight display
 // Chronological order of two sessions (date, then id as a same-day tiebreak).
@@ -260,6 +260,8 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
   const [editIdx, setEditIdx]     = useState(null)
   const [addingNew, setAddingNew] = useState(false)
   const color = COLORS[day]
+  // "Last time" = the occurrence before this session, not this session (or a later one).
+  const lastBefore = useCallback(n => lastLiftFor(n, session), [lastLiftFor, session])
   const dirty = date !== session.date || day !== session.day || gym !== gymOf(session) || JSON.stringify(lifts) !== JSON.stringify(session.lifts)
   const close = () => { if (!dirty || confirm('Discard unsaved changes?')) onClose() }
 
@@ -291,7 +293,7 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
         {lifts.map((l, i) => (
           <div key={i} style={{ marginBottom: 10 }}>
             {editIdx === i
-              ? <LiftBuilder lift={l} color={color} day={day} exerciseHistory={exerciseHistory} dayExercises={exercisesByDay?.[day] || []} lastLiftFor={lastLiftFor} confirmLabel="SAVE LIFT ✓"
+              ? <LiftBuilder lift={l} color={color} day={day} exerciseHistory={exerciseHistory} dayExercises={exercisesByDay?.[day] || []} lastLiftFor={lastBefore} confirmLabel="SAVE LIFT ✓"
                   onConfirm={u => { setLifts(p => p.map((x, j) => j === i ? u : x)); setEditIdx(null) }}
                   onCancel={() => setEditIdx(null)} />
               : <div className="card" style={{ background: '#111', border: '1px solid #1e1e1e', borderRadius: 12, overflow: 'hidden' }}>
@@ -309,7 +311,7 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
           </div>
         ))}
         {addingNew
-          ? <LiftBuilder lift={null} color={color} day={day} exerciseHistory={exerciseHistory} dayExercises={exercisesByDay?.[day] || []} lastLiftFor={lastLiftFor} confirmLabel="ADD LIFT ✓"
+          ? <LiftBuilder lift={null} color={color} day={day} exerciseHistory={exerciseHistory} dayExercises={exercisesByDay?.[day] || []} lastLiftFor={lastBefore} confirmLabel="ADD LIFT ✓"
               onConfirm={u => { setLifts(p => [...p, u]); setAddingNew(false) }}
               onCancel={() => setAddingNew(false)} />
           : <button onClick={() => setAddingNew(true)} style={{ width: '100%', background: '#111', border: `1.5px dashed ${color}55`, color, padding: '16px', borderRadius: 12, fontSize: 13, letterSpacing: 2, cursor: 'pointer', marginBottom: 14, fontFamily: "'DM Mono', monospace" }}>+ ADD LIFT</button>}
@@ -417,6 +419,8 @@ export default function App() {
   const [formDay, setFormDay]         = useState(draft?.day && COLORS[draft.day] ? draft.day : 'Push')
   const [formDate, setFormDate]       = useState(draft?.date || todayStr())
   const [formGym, setFormGym]         = useState(draft?.gym || gymForDate(todayStr()))
+  // The date the Log form last auto-filled; a user-picked date differs from it and is left alone.
+  const autoDate = useRef(draft?.date ? null : formDate)
   const [pending, setPending]         = useState(Array.isArray(draft?.pending) ? draft.pending : [])
   const [addingLift, setAddingLift]   = useState(false)
   const [editPendIdx, setEditPendIdx] = useState(null)
@@ -527,19 +531,24 @@ export default function App() {
   const liftIndex = useMemo(() => {
     const idx = {}
     sessions.forEach(s => s.lifts.forEach(l => {
-      const key = l.exercise.toLowerCase().trim()
+      const key = exKey(l.exercise)
       if (!idx[key]) idx[key] = []
       idx[key].push({ session: s, lift: l })
     }))
-    Object.values(idx).forEach(arr => arr.sort((a, b) => b.session.date.localeCompare(a.session.date) || b.session.id - a.session.id))
+    Object.values(idx).forEach(arr => arr.sort((a, b) => cmpSess(b.session, a.session)))
     return idx
   }, [sessions])
 
-  const lastLiftFor = useCallback((name) => {
-    const arr = liftIndex[name.toLowerCase().trim()]
+  // Newest occurrence of an exercise; with `before`, the newest one strictly earlier than that session.
+  // Prefers entries since the last trend reset, so a reset typo (300 vs 30) no longer drives
+  // the LAST TIME box, weight auto-fill or the typo guard.
+  const lastLiftFor = useCallback((name, before = null) => {
+    const k = exKey(name)
+    const arr = liftIndex[k]
     if (!arr?.length) return null
-    return arr[0]
-  }, [liftIndex])
+    const cands = before ? arr.filter(e => e.session.id !== before.id && cmpSess(e.session, before) < 0) : arr
+    return cands.find(e => inTrend(e.session, k)) || cands[0] || null
+  }, [liftIndex, inTrend])
 
   const prMap = useMemo(() => {
     const result = {}
@@ -574,7 +583,7 @@ export default function App() {
       .map(s => {
         const lift = s.lifts.find(l => eqEx(l.exercise, progressEx))
         const top = bestSet(lift)
-        return { date: fmt(s.date), fullDate: s.date, day: s.day, topW: top.weight, topR: top.reps, sets: lift.sets, session: s }
+        return { x: String(s.id), date: fmt(s.date), fullDate: s.date, day: s.day, topW: top.weight, topR: top.reps, sets: lift.sets, session: s }
       })
       .reverse()
     const key = exKey(progressEx)
@@ -609,7 +618,7 @@ export default function App() {
     }))
     const result = []
     Object.entries(groups).forEach(([key, arr]) => {
-      arr.sort((a, b) => dateVal(b.session.date) - dateVal(a.session.date) || Number(b.session.id) - Number(a.session.id))
+      arr.sort((a, b) => cmpSess(b.session, a.session))
       const latest = arr[0]
       const latestBest = bestSet(latest.lift)
       const latestVol  = liftVolume(latest.lift)
@@ -700,7 +709,7 @@ export default function App() {
       const b = bestSet(l)
       const top = hist.reduce((m, e) => { const x = bestSet(e.lift); return (x.weight > m.weight || (x.weight === m.weight && x.reps > m.reps)) ? x : m }, { weight: 0, reps: 0 })
       return b.weight > top.weight || (b.weight === top.weight && b.reps > top.reps)
-    }).map(l => l.exercise)
+    }).map(l => l.exercise).filter((n, i, a) => a.findIndex(m => eqEx(m, n)) === i)
     const result = await commitSessions([s, ...sessions])
     if (result) {
       vibrate(prs.length ? [20, 60, 40] : 20)
@@ -1124,11 +1133,12 @@ export default function App() {
                 <div className="card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 14, padding: '20px 4px 8px', marginBottom: 16 }}>
                   <ResponsiveContainer width="100%" height={210}>
                     <LineChart data={overloadData} margin={{ left: 0, right: 10, top: 6 }}>
-                      <XAxis dataKey="date" tick={{ fill: '#888', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} />
+                      <XAxis dataKey="x" tickFormatter={x => overloadData.find(r => r.x === x)?.date ?? ''} tick={{ fill: '#888', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fill: '#888', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} width={44} unit="" />
                       <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', fontFamily: 'DM Mono', fontSize: 12, color: '#fff', borderRadius: 8 }} labelStyle={{ color: '#888' }}
+                        labelFormatter={(x, p) => p?.[0]?.payload?.date ?? ''}
                         formatter={(v, n, p) => [`${fmtW(v)} × ${p.payload.topR} reps`, 'Top set']} />
-                      {baseRow && <ReferenceLine x={baseRow.date} stroke="#555" strokeDasharray="3 3" label={{ value: '↺', position: 'insideTopLeft', fill: '#888', fontSize: 12 }} />}
+                      {baseRow && <ReferenceLine x={baseRow.x} stroke="#555" strokeDasharray="3 3" label={{ value: '↺', position: 'insideTopLeft', fill: '#888', fontSize: 12 }} />}
                       <Line type="monotone" dataKey="topW" stroke="#22c55e" strokeWidth={2.5} isAnimationActive={false}
                         dot={({ cx, cy, payload, index }) => {
                           const fill = payload.preReset ? '#444' : payload.weightPR ? '#f59e0b' : payload.repPR ? '#06b6d4' : '#22c55e'
@@ -1187,7 +1197,9 @@ export default function App() {
           return (
             <button key={k} onClick={() => {
               // Opening an empty Log after midnight (app left open) should default to today.
-              if (k === 'log' && !pending.length && view !== 'log') { setFormDate(todayStr()); setFormGym(gymForDate(todayStr())) }
+              if (k === 'log' && !pending.length && view !== 'log' && formDate === autoDate.current && formDate !== todayStr()) {
+                const t = todayStr(); autoDate.current = t; setFormDate(t); setFormGym(gymForDate(t))
+              }
               setView(k)
             }} style={{ flex: 1, background: 'none', border: 'none', color: active ? '#fff' : '#666', padding: '14px 0 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, minHeight: 60, position: 'relative' }}>
               <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: active ? '#fff' : '#5a5a5a', transition: 'color .15s' }}><Ic size={23} w={active ? 2.5 : 2} /></span>
