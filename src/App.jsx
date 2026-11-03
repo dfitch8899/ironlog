@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { dbRead, dbWrite, dbSubscribe, isConfigured, subscribeAuth, signInWithGoogle, signOutUser } from './firebase.js'
 
 // ── constants ─────────────────────────────────────────────────────────────
@@ -15,7 +15,10 @@ const GYM_META = {
   'Ping':           { short: 'PING', color: '#14b8a6' },
 }
 // ── helpers ───────────────────────────────────────────────────────────────
-const todayStr = () => new Date().toISOString().split('T')[0]
+// Local-calendar YYYY-MM-DD. (toISOString() is UTC, which rolls over to "tomorrow"
+// in the evening for US time zones and mis-dated late-night sessions.)
+const localISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const todayStr = () => localISO(new Date())
 const fmt   = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 const fmtF  = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 const dc    = o => JSON.parse(JSON.stringify(o))
@@ -31,8 +34,24 @@ const bestSet = l => l.sets.reduce(
   { weight: 0, reps: 0 }
 )
 const eqEx = (a, b) => a.toLowerCase().trim() === b.toLowerCase().trim()
+const exKey = n => n.toLowerCase().trim()
 const vibrate = (ms = 15) => navigator.vibrate?.(ms)
 const fmtW = w => w === 0 ? 'BW' : w  // bodyweight display
+// Chronological order of two sessions (date, then id as a same-day tiebreak).
+const cmpSess = (a, b) => dateVal(a.date) - dateVal(b.date) || Number(a.id) - Number(b.id)
+
+// ── trend reset ───────────────────────────────────────────────────────────
+// A lift can carry `trendStart: true`, meaning "trends / PRs for this exercise
+// start fresh at this session". Earlier sessions stay in history and on the graph
+// but are ignored for comparisons — so a typo'd 300 instead of 30 doesn't make every
+// later session read as DOWN. Stored on the lift itself so it lives inside the
+// existing `sessions` path (no new DB rules needed) and syncs like everything else.
+const TREND_FLAG = 'trendStart'
+
+// Draft (unsaved Log-tab session) survives reloads / the phone killing the tab.
+const DRAFT_KEY = 'ironlog.draft.v1'
+const loadDraft = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY)) || null } catch { return null } }
+const saveDraft = d => { try { d ? localStorage.setItem(DRAFT_KEY, JSON.stringify(d)) : localStorage.removeItem(DRAFT_KEY) } catch { /* storage unavailable */ } }
 
 // Streak: count consecutive prior days with at least one session, ending today or yesterday
 function calcStreak(sessions) {
@@ -40,9 +59,8 @@ function calcStreak(sessions) {
   const dates = new Set(sessions.map(s => s.date))
   let streak = 0
   const d = new Date()
-  const todayHas = dates.has(d.toISOString().split('T')[0])
-  if (!todayHas) d.setDate(d.getDate() - 1)
-  while (dates.has(d.toISOString().split('T')[0])) {
+  if (!dates.has(localISO(d))) d.setDate(d.getDate() - 1)
+  while (dates.has(localISO(d))) {
     streak++
     d.setDate(d.getDate() - 1)
   }
@@ -121,7 +139,16 @@ function LiftBuilder({ lift, color, day, exerciseHistory, dayExercises = [], las
     if (!name.trim()) return alert('Enter exercise name')
     const filled = sets.filter(s => s.reps !== '' && s.weight !== '' && +s.reps > 0 && +s.weight >= 0)
     if (!filled.length) return alert('Add at least one complete set')
-    onConfirm({ exercise: name.trim(), sets: filled.map(s => ({ weight: +s.weight, reps: +s.reps })) })
+    const clean = filled.map(s => ({ weight: +s.weight, reps: +s.reps }))
+    // Typo guard: a top set wildly off from last time (300 vs 30) is usually a fat finger.
+    const prevTop = prev ? bestSet(prev.lift).weight : 0
+    const newTop = bestSet({ sets: clean }).weight
+    if (prevTop > 0 && Math.abs(newTop - prevTop) >= 20 && (newTop >= prevTop * 1.75 || newTop <= prevTop * 0.5)) {
+      if (!confirm(`Double-check: top set is ${newTop} lb, last time was ${prevTop} lb.\n\nSave anyway?`)) return
+    }
+    // Keep extra fields (e.g. the trend-reset marker) when editing the same exercise.
+    const keep = lift && eqEx(lift.exercise, name) ? lift : {}
+    onConfirm({ ...keep, exercise: name.trim(), sets: clean })
   }
 
   return (
@@ -233,11 +260,13 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
   const [editIdx, setEditIdx]     = useState(null)
   const [addingNew, setAddingNew] = useState(false)
   const color = COLORS[day]
+  const dirty = date !== session.date || day !== session.day || gym !== gymOf(session) || JSON.stringify(lifts) !== JSON.stringify(session.lifts)
+  const close = () => { if (!dirty || confirm('Discard unsaved changes?')) onClose() }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#090909', zIndex: 100, overflowY: 'auto', maxWidth: 480, margin: '0 auto', fontFamily: "'DM Mono', monospace", paddingBottom: 120 }}>
       <div style={{ padding: '44px 16px 16px', borderBottom: '1px solid #161616', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#555', fontSize: 26, cursor: 'pointer' }}>‹</button>
+        <button onClick={close} aria-label="Back" style={{ background: 'none', border: 'none', color: '#555', fontSize: 26, cursor: 'pointer' }}>‹</button>
         <div>
           <div style={{ fontFamily: "'Bebas Neue'", fontSize: 28, letterSpacing: 4, color: '#fff', lineHeight: 1 }}>EDIT SESSION</div>
           <div style={{ fontSize: 10, color: '#666', letterSpacing: 2, marginTop: 2 }}>{fmtF(session.date)} — {session.day}</div>
@@ -287,7 +316,7 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
       </div>
       {!addingNew && editIdx === null && (
         <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, padding: '12px 16px calc(env(safe-area-inset-bottom, 0px) + 16px)', background: '#0d0d0d', borderTop: '1px solid #161616' }}>
-          <button onClick={() => onSave({ ...session, date, day, gym, lifts })} style={{ width: '100%', background: 'linear-gradient(180deg,#ffffff 0%,#e8e8e8 100%)', border: 'none', color: '#000', padding: '18px', borderRadius: 14, fontSize: 13, letterSpacing: 3, cursor: 'pointer', fontWeight: 700, fontFamily: "'DM Mono', monospace", boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 4px 16px rgba(0,0,0,0.5), 0 1px 0 rgba(0,0,0,0.2)' }}>SAVE CHANGES →</button>
+          <button onClick={() => lifts.length ? onSave({ ...session, date, day, gym, lifts }) : alert('A session needs at least one lift — delete it from History instead.')} style={{ width: '100%', background: 'linear-gradient(180deg,#ffffff 0%,#e8e8e8 100%)', border: 'none', color: '#000', padding: '18px', borderRadius: 14, fontSize: 13, letterSpacing: 3, cursor: 'pointer', fontWeight: 700, fontFamily: "'DM Mono', monospace", boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 4px 16px rgba(0,0,0,0.5), 0 1px 0 rgba(0,0,0,0.2)' }}>SAVE CHANGES →</button>
         </div>
       )}
     </div>
@@ -383,11 +412,12 @@ export default function App() {
   const [sessions, setSessions] = useState([])
   const [editSess, setEditSess] = useState(null)
 
-  const [view, setView]               = useState('history')
-  const [formDay, setFormDay]         = useState('Push')
-  const [formDate, setFormDate]       = useState(todayStr())
-  const [formGym, setFormGym]         = useState(gymForDate(todayStr()))
-  const [pending, setPending]         = useState([])
+  const [draft] = useState(loadDraft)
+  const [view, setView]               = useState(draft?.pending?.length ? 'log' : 'history')
+  const [formDay, setFormDay]         = useState(draft?.day && COLORS[draft.day] ? draft.day : 'Push')
+  const [formDate, setFormDate]       = useState(draft?.date || todayStr())
+  const [formGym, setFormGym]         = useState(draft?.gym || gymForDate(todayStr()))
+  const [pending, setPending]         = useState(Array.isArray(draft?.pending) ? draft.pending : [])
   const [addingLift, setAddingLift]   = useState(false)
   const [editPendIdx, setEditPendIdx] = useState(null)
   const [expandedId, setExpandedId]   = useState(null)
@@ -397,11 +427,20 @@ export default function App() {
   const [flash, setFlash]             = useState(null)
 
   const flashTimer = useRef(null)
-  const showFlash = useCallback((msg, type = 'ok') => {
+  // Always-current sessions for async callbacks (UNDO buttons fire seconds later).
+  const sessionsRef = useRef(sessions)
+  sessionsRef.current = sessions
+  // action: optional { label, fn } rendered as a tappable button (e.g. UNDO).
+  const showFlash = useCallback((msg, type = 'ok', action = null) => {
     clearTimeout(flashTimer.current)
-    setFlash({ msg, type })
-    flashTimer.current = setTimeout(() => setFlash(null), 2800)
+    setFlash({ msg, type, action })
+    flashTimer.current = setTimeout(() => setFlash(null), action ? 6000 : 2800)
   }, [])
+
+  // Persist the in-progress Log session so a reload / killed tab doesn't lose it.
+  useEffect(() => {
+    saveDraft(pending.length ? { date: formDate, day: formDay, gym: formGym, pending } : null)
+  }, [pending, formDate, formDay, formGym])
 
   // Track the signed-in user. Fires immediately with the restored session.
   useEffect(() => {
@@ -442,10 +481,26 @@ export default function App() {
     return () => { unsub(); clearTimeout(errTimer) }
   }, [user])
 
-  const allExercises = useMemo(
-    () => [...new Set(sessions.flatMap(s => s.lifts.map(l => l.exercise)))].sort(),
-    [sessions]
-  )
+  // One entry per exercise, case/whitespace-insensitive ("Bench press" == "bench Press "),
+  // using the most recent spelling. Sessions are kept newest-first.
+  const allExercises = useMemo(() => {
+    const seen = new Map()
+    sessions.forEach(s => s.lifts.forEach(l => { const k = exKey(l.exercise); if (!seen.has(k)) seen.set(k, l.exercise.trim()) }))
+    return [...seen.values()].sort((a, b) => a.localeCompare(b))
+  }, [sessions])
+
+  // exercise key → the session where its trends were last reset (or undefined).
+  const baselineMap = useMemo(() => {
+    const m = {}
+    sessions.forEach(s => s.lifts.forEach(l => {
+      if (!l[TREND_FLAG]) return
+      const k = exKey(l.exercise)
+      if (!m[k] || cmpSess(s, m[k]) > 0) m[k] = s
+    }))
+    return m
+  }, [sessions])
+  // True when session s counts toward trends/PRs for exercise key k.
+  const inTrend = useCallback((s, k) => !baselineMap[k] || cmpSess(s, baselineMap[k]) >= 0, [baselineMap])
 
   // Sessions narrowed to the selected gym — feeds the Trends & Progress analytics.
   const statsSessions = useMemo(
@@ -489,9 +544,10 @@ export default function App() {
   const prMap = useMemo(() => {
     const result = {}
     const byEx = {}
-    const oldestFirst = [...sessions].sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)
+    const oldestFirst = [...sessions].sort(cmpSess)
     oldestFirst.forEach(s => s.lifts.forEach((l, idx) => {
-      const key = l.exercise.toLowerCase().trim()
+      const key = exKey(l.exercise)
+      if (!inTrend(s, key)) return   // pre-reset sessions don't set the bar
       const bs = bestSet(l)
       const best = byEx[key] || { maxW: 0, repsAtMaxW: 0 }
       const isWeightPR = bs.weight > best.maxW
@@ -504,7 +560,7 @@ export default function App() {
       else byEx[key] = best
     }))
     return result
-  }, [sessions])
+  }, [sessions, inTrend])
 
   const streak = useMemo(() => calcStreak(sessions), [sessions])
 
@@ -521,8 +577,12 @@ export default function App() {
         return { date: fmt(s.date), fullDate: s.date, day: s.day, topW: top.weight, topR: top.reps, sets: lift.sets, session: s }
       })
       .reverse()
+    const key = exKey(progressEx)
     let bestW = 0, bestR = 0
     rows.forEach(r => {
+      r.preReset = !inTrend(r.session, key)
+      r.isBaseline = baselineMap[key]?.id === r.session.id
+      if (r.preReset) { r.weightPR = r.repPR = r.isPR = false; return }
       const weightPR = r.topW > bestW
       const repPR = !weightPR && r.topW === bestW && r.topR > bestR
       r.weightPR = weightPR
@@ -532,20 +592,23 @@ export default function App() {
       else if (r.topW === bestW && r.topR > bestR) bestR = r.topR
     })
     return rows
-  }, [statsSessions, progressEx])
+  }, [statsSessions, progressEx, inTrend, baselineMap])
 
-  const overload = useMemo(() => analyzeOverload(overloadData), [overloadData])
+  // Rows that count for the verdict / top-set stat (everything since the last reset).
+  const trendRows = useMemo(() => overloadData.filter(r => !r.preReset), [overloadData])
+  const overload = useMemo(() => analyzeOverload(trendRows), [trendRows])
 
   // Per-exercise progress: latest session vs previous occurrence. Used by the TRENDS view.
   const exerciseProgress = useMemo(() => {
     const groups = {}
     statsSessions.forEach(s => s.lifts.forEach(l => {
-      const key = l.exercise.toLowerCase().trim()
+      const key = exKey(l.exercise)
+      if (!inTrend(s, key)) return   // ignore sessions before a reset
       if (!groups[key]) groups[key] = []
       groups[key].push({ session: s, lift: l, displayName: l.exercise })
     }))
     const result = []
-    Object.values(groups).forEach(arr => {
+    Object.entries(groups).forEach(([key, arr]) => {
       arr.sort((a, b) => dateVal(b.session.date) - dateVal(a.session.date) || Number(b.session.id) - Number(a.session.id))
       const latest = arr[0]
       const latestBest = bestSet(latest.lift)
@@ -565,6 +628,7 @@ export default function App() {
         prevSets: null,
         wDelta: 0, rDelta: 0, vDelta: 0,
         status: 'new',
+        resetDate: baselineMap[key]?.date || null,
       }
       const prev = arr[1]
       if (prev) {
@@ -588,7 +652,7 @@ export default function App() {
     })
     result.sort((a, b) => dateVal(b.latestDate) - dateVal(a.latestDate) || Number(b.latestSessionId) - Number(a.latestSessionId) || a.name.localeCompare(b.name))
     return result
-  }, [statsSessions])
+  }, [statsSessions, inTrend, baselineMap])
 
   const trendCounts = useMemo(() => {
     const c = { up: 0, same: 0, down: 0, new: 0 }
@@ -608,7 +672,8 @@ export default function App() {
 
   const commitSessions = useCallback(async data => {
     const sorted = sortS(data)
-    const previous = sessions
+    const previous = sessionsRef.current
+    sessionsRef.current = sorted
     setSessions(sorted)
     setStatus('saving')
     try {
@@ -616,21 +681,31 @@ export default function App() {
       setStatus('ready')
       return sorted
     } catch {
+      sessionsRef.current = previous
       setSessions(previous)
       setStatus('ready')
       showFlash('Save failed — try again', 'err')
       return null
     }
-  }, [sessions, showFlash])
+  }, [showFlash])
 
   const saveSession = async ({ goToHistory = false } = {}) => {
     if (!pending.length) return showFlash('Add at least one lift', 'err')
     const s = { id: Date.now(), date: formDate, day: formDay, gym: formGym, lifts: pending }
+    // Which lifts beat their best since the last reset? (Same weight-then-reps rule as prMap.)
+    const prs = pending.filter(l => {
+      const k = exKey(l.exercise)
+      const hist = (liftIndex[k] || []).filter(e => inTrend(e.session, k) && cmpSess(e.session, s) < 0)
+      if (!hist.length) return false
+      const b = bestSet(l)
+      const top = hist.reduce((m, e) => { const x = bestSet(e.lift); return (x.weight > m.weight || (x.weight === m.weight && x.reps > m.reps)) ? x : m }, { weight: 0, reps: 0 })
+      return b.weight > top.weight || (b.weight === top.weight && b.reps > top.reps)
+    }).map(l => l.exercise)
     const result = await commitSessions([s, ...sessions])
     if (result) {
-      vibrate(20)
+      vibrate(prs.length ? [20, 60, 40] : 20)
       setPending([]); setAddingLift(false); setEditPendIdx(null)
-      showFlash(formDay + ' saved! ☁️')
+      showFlash(prs.length ? `🔥 PR: ${prs.join(', ')}` : formDay + ' saved! ☁️')
       if (goToHistory) setView('history')
     }
   }
@@ -641,12 +716,53 @@ export default function App() {
   }
 
   const deleteSession = async id => {
-    if (!confirm('Delete this session?')) return
+    const gone = sessions.find(s => s.id === id)
+    if (!gone || !confirm('Delete this session?')) return
     const result = await commitSessions(sessions.filter(s => s.id !== id))
     if (result) {
       if (expandedId === id) setExpandedId(null)
-      showFlash('Deleted')
+      showFlash('Session deleted', 'ok', {
+        label: 'UNDO',
+        fn: () => commitSessions([gone, ...sessionsRef.current.filter(s => s.id !== gone.id)]).then(r => r && showFlash('Restored')),
+      })
     }
+  }
+
+  // Move an exercise's trend baseline to `sessionId` (null = clear the reset).
+  // Only the flag changes — every set, session and graph point is untouched.
+  const setTrendBaseline = async (exercise, sessionId, { undoable = true } = {}) => {
+    const k = exKey(exercise)
+    const prevId = baselineMap[k]?.id ?? null
+    const next = sessionsRef.current.map(s => {
+      let changed = false
+      const lifts = s.lifts.map(l => {
+        if (exKey(l.exercise) !== k) return l
+        const want = s.id === sessionId
+        if (!!l[TREND_FLAG] === want) return l
+        changed = true
+        if (want) return { ...l, [TREND_FLAG]: true }
+        const { [TREND_FLAG]: _drop, ...rest } = l   // RTDB rejects undefined values, so delete the key
+        return rest
+      })
+      return changed ? { ...s, lifts } : s
+    })
+    const result = await commitSessions(next)
+    if (!result) return
+    vibrate(15)
+    showFlash(sessionId ? `${exercise} trends reset` : `${exercise} reset removed`, 'ok',
+      undoable ? { label: 'UNDO', fn: () => setTrendBaseline(exercise, prevId, { undoable: false }) } : null)
+  }
+
+  const resetTrendFrom = (exercise, session) => {
+    if (!confirm(`Start ${exercise} trends fresh from ${fmt(session.date)}?\n\nEarlier sessions stay in History and on the graph — they just won't count toward PRs, UP/DOWN or the overload verdict.`)) return
+    setTrendBaseline(exercise, session.id)
+  }
+
+  // Jump from a Trends row to that exercise's Progress page (canonical spelling for the <select>).
+  const openProgress = name => {
+    setProgressEx(allExercises.find(e => eqEx(e, name)) || name)
+    setView('progress')
+    window.scrollTo({ top: 0 })
   }
 
   const color    = COLORS[formDay]
@@ -714,7 +830,12 @@ export default function App() {
       `}</style>
 
       {flash && (
-        <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 12px)', left: '50%', transform: 'translateX(-50%)', zIndex: 999, background: flash.type === 'err' ? 'linear-gradient(180deg,#3b0a0a,#260606)' : 'linear-gradient(180deg,#0a2e1a,#062012)', border: `1px solid ${flash.type === 'err' ? '#ef444466' : '#22c55e66'}`, color: flash.type === 'err' ? '#fca5a5' : '#86efac', padding: '12px 22px', borderRadius: 12, fontSize: 13, whiteSpace: 'nowrap', boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)', animation: 'slideDown .28s cubic-bezier(.2,0,0,1)', fontWeight: 500 }}>{flash.msg}</div>
+        <div style={{ position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 12px)', left: '50%', transform: 'translateX(-50%)', zIndex: 999, background: flash.type === 'err' ? 'linear-gradient(180deg,#3b0a0a,#260606)' : 'linear-gradient(180deg,#0a2e1a,#062012)', border: `1px solid ${flash.type === 'err' ? '#ef444466' : '#22c55e66'}`, color: flash.type === 'err' ? '#fca5a5' : '#86efac', padding: flash.action ? '8px 8px 8px 18px' : '12px 22px', borderRadius: 12, fontSize: 13, maxWidth: 'calc(100vw - 32px)', display: 'flex', alignItems: 'center', gap: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)', animation: 'slideDown .28s cubic-bezier(.2,0,0,1)', fontWeight: 500 }} role="status">
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{flash.msg}</span>
+          {flash.action && (
+            <button onClick={() => { const fn = flash.action.fn; clearTimeout(flashTimer.current); setFlash(null); fn() }} style={{ flexShrink: 0, background: '#ffffff14', border: '1px solid #ffffff26', color: '#fff', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, letterSpacing: 1.5 }}>{flash.action.label}</button>
+          )}
+        </div>
       )}
 
       <div style={{ padding: 'calc(env(safe-area-inset-top, 0px) + 28px) 16px 16px', borderBottom: '1px solid #141414', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', position: 'relative' }}>
@@ -908,13 +1029,14 @@ export default function App() {
                     'new':  { color: '#a855f7', label: 'NEW',               Ic: IconSpark },
                   }[r.status]
                   return (
-                    <div key={r.name + r.latestSessionId} className="session-card card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 14, marginBottom: 10, overflow: 'hidden', animationDelay: `${Math.min(idx, 8) * 35}ms` }}>
+                    <div key={r.name + r.latestSessionId} role="button" tabIndex={0} onClick={() => openProgress(r.name)} onKeyDown={e => e.key === 'Enter' && openProgress(r.name)} className="session-card card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 14, marginBottom: 10, overflow: 'hidden', cursor: 'pointer', animationDelay: `${Math.min(idx, 8) * 35}ms` }}>
                       <div style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12 }}>
                         <div style={{ width: 4, height: 50, borderRadius: 2, background: dayColor, flexShrink: 0, boxShadow: `0 0 12px ${dayColor}66` }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 15, color: '#fff', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
                           <div style={{ fontSize: 11, color: '#9a9a9a', marginTop: 4, letterSpacing: 0.3 }}>
                             <span style={{ color: dayColor, fontWeight: 600 }}>{r.day}</span> · {fmt(r.latestDate)}
+                            {r.resetDate && <span style={{ color: '#666' }}> · ↺ since {fmt(r.resetDate)}</span>}
                           </div>
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
@@ -939,7 +1061,7 @@ export default function App() {
                           </>
                         ) : (
                           <div style={{ flex: 1, color: '#888', fontSize: 12 }}>
-                            First time · {r.latestMaxW === 0 ? 'BW' : r.latestMaxW}lb × {r.latestReps} reps
+                            {r.resetDate ? 'Fresh start' : 'First time'} · {r.latestMaxW === 0 ? 'BW' : r.latestMaxW}lb × {r.latestReps} reps
                           </div>
                         )}
                       </div>
@@ -960,12 +1082,16 @@ export default function App() {
               {allExercises.map(e => <option key={e} value={e}>{e}</option>)}
             </select>
             {progressEx && overloadData.length > 0 && (() => {
-              const best = overloadData.reduce((m, r) => (r.topW > m.topW || (r.topW === m.topW && r.topR > m.topR)) ? r : m, overloadData[0])
+              const best = trendRows.length ? trendRows.reduce((m, r) => (r.topW > m.topW || (r.topW === m.topW && r.topR > m.topR)) ? r : m, trendRows[0]) : null
               const latest = overloadData[overloadData.length - 1]
+              const exK = exKey(progressEx)
+              const baseSess = baselineMap[exK]
+              const latestAny = liftIndex[exK]?.[0]?.session   // newest across all gyms
+              const baseRow = overloadData.find(r => r.isBaseline)
               return (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
-                  {[['TOP SET', `${fmtW(best.topW)}×${best.topR}`], ['LATEST', `${fmtW(latest.topW)}×${latest.topR}`], ['SESSIONS', overloadData.length]].map(([label, val]) => (
+                  {[[baseSess ? 'BEST ↺' : 'TOP SET', best ? `${fmtW(best.topW)}×${best.topR}` : '—'], ['LATEST', `${fmtW(latest.topW)}×${latest.topR}`], ['SESSIONS', overloadData.length]].map(([label, val]) => (
                     <div key={label} className="card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 12, padding: '16px 8px', textAlign: 'center' }}>
                       <div style={{ fontFamily: "'Bebas Neue'", fontSize: 28, color: '#fff', letterSpacing: 1, lineHeight: 1 }}>{val}</div>
                       <div style={{ fontSize: 11, color: '#888', letterSpacing: 1.5, marginTop: 6 }}>{label}</div>
@@ -981,8 +1107,20 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Trend reset: fixes comparisons after a typo'd / outlier entry without touching any data. */}
+                <div className="card" style={{ background: '#0e0e0e', border: '1px solid #1c1c1c', borderRadius: 12, padding: '10px 12px 10px 14px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#888', lineHeight: 1.5 }}>
+                    {baseSess
+                      ? <>Trends counting from <span style={{ color: '#ddd' }}>{fmt(baseSess.date)}</span>. Older sessions are kept but don’t count.</>
+                      : <>Bad entry throwing off your trends? Start fresh — history &amp; graph stay.</>}
+                  </div>
+                  {baseSess
+                    ? <button onClick={() => setTrendBaseline(progressEx, null)} disabled={isSaving} style={{ flexShrink: 0, background: '#1a1a1a', border: '1px solid #2a2a2a', color: '#aaa', padding: '9px 12px', borderRadius: 8, fontSize: 11, letterSpacing: 1, fontWeight: 600 }}>CLEAR</button>
+                    : latestAny && <button onClick={() => resetTrendFrom(progressEx, latestAny)} disabled={isSaving} style={{ flexShrink: 0, background: '#1a1a1a', border: '1px solid #2a2a2a', color: '#ddd', padding: '9px 12px', borderRadius: 8, fontSize: 11, letterSpacing: 1, fontWeight: 600 }}>↺ RESET</button>}
+                </div>
+
                 <div style={{ fontSize: 11, letterSpacing: 2, color: '#888', fontWeight: 600, marginBottom: 4 }}>TOP-SET WEIGHT</div>
-                <div style={{ fontSize: 10, color: '#666', marginBottom: 8, lineHeight: 1.4 }}>Heaviest set each session (ties broken by reps). Number above each point = reps. 🔥 = weight PR · 📈 = rep PR.</div>
+                <div style={{ fontSize: 10, color: '#666', marginBottom: 8, lineHeight: 1.4 }}>Heaviest set each session (ties broken by reps). Number above each point = reps. 🔥 = weight PR · 📈 = rep PR.{baseSess ? ' Grey = before reset.' : ''}</div>
                 <div className="card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 14, padding: '20px 4px 8px', marginBottom: 16 }}>
                   <ResponsiveContainer width="100%" height={210}>
                     <LineChart data={overloadData} margin={{ left: 0, right: 10, top: 6 }}>
@@ -990,12 +1128,13 @@ export default function App() {
                       <YAxis tick={{ fill: '#888', fontSize: 11, fontFamily: 'DM Mono' }} axisLine={false} tickLine={false} width={44} unit="" />
                       <Tooltip contentStyle={{ background: '#1a1a1a', border: '1px solid #2a2a2a', fontFamily: 'DM Mono', fontSize: 12, color: '#fff', borderRadius: 8 }} labelStyle={{ color: '#888' }}
                         formatter={(v, n, p) => [`${fmtW(v)} × ${p.payload.topR} reps`, 'Top set']} />
-                      <Line type="monotone" dataKey="topW" stroke="#22c55e" strokeWidth={2.5}
+                      {baseRow && <ReferenceLine x={baseRow.date} stroke="#555" strokeDasharray="3 3" label={{ value: '↺', position: 'insideTopLeft', fill: '#888', fontSize: 12 }} />}
+                      <Line type="monotone" dataKey="topW" stroke="#22c55e" strokeWidth={2.5} isAnimationActive={false}
                         dot={({ cx, cy, payload, index }) => {
-                          const fill = payload.weightPR ? '#f59e0b' : payload.repPR ? '#06b6d4' : '#22c55e'
+                          const fill = payload.preReset ? '#444' : payload.weightPR ? '#f59e0b' : payload.repPR ? '#06b6d4' : '#22c55e'
                           return (
                             <g key={`d-${index}`}>
-                              <text x={cx} y={cy - 12} textAnchor="middle" fontSize={10} fill="#9a9a9a" fontFamily="DM Mono">{payload.topR}r</text>
+                              <text x={cx} y={cy - 12} textAnchor="middle" fontSize={10} fill={payload.preReset ? '#555' : '#9a9a9a'} fontFamily="DM Mono">{payload.topR}r</text>
                               <circle cx={cx} cy={cy} r={payload.isPR ? 5 : 3.5} fill={fill} stroke={payload.isPR ? '#fff' : 'none'} strokeWidth={payload.isPR ? 1.5 : 0} />
                             </g>
                           )
@@ -1009,12 +1148,13 @@ export default function App() {
                 {[...overloadData].reverse().map((d, i) => {
                   const c = COLORS[d.day]
                   return (
-                    <div key={i} className="card" style={{ background: '#111', border: '1px solid #1f1f1f', borderRadius: 12, padding: '12px 14px', marginBottom: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <div style={{ fontSize: 13, color: '#ddd', fontWeight: 500 }}>{d.date}</div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <div key={d.session.id} className="card" style={{ background: '#111', border: `1px solid ${d.isBaseline ? '#3a3a3a' : '#1f1f1f'}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8, opacity: d.preReset ? 0.5 : 1 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                        <div style={{ fontSize: 13, color: '#ddd', fontWeight: 500, whiteSpace: 'nowrap' }}>{d.date}{d.isBaseline && <span style={{ color: '#888', fontSize: 10, letterSpacing: 1, marginLeft: 8 }}>↺ START</span>}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                           {d.isPR && <span style={{ background: d.weightPR ? '#f59e0b22' : '#06b6d422', color: d.weightPR ? '#f59e0b' : '#06b6d4', border: `1px solid ${d.weightPR ? '#f59e0b66' : '#06b6d466'}`, fontSize: 10, padding: '3px 7px', borderRadius: 5, fontWeight: 600, letterSpacing: 1 }}>{d.weightPR ? '🔥 WT PR' : '📈 REP PR'}</span>}
                           <span style={{ fontSize: 11, color: c, fontWeight: 600 }}>{d.day}</span>
+                          {!d.isBaseline && <button onClick={() => resetTrendFrom(progressEx, d.session)} disabled={isSaving} aria-label="Start trends from this session" title="Start trends from here" style={{ background: '#1e1e1e', border: 'none', color: '#888', padding: '6px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontFamily: "'DM Mono', monospace" }}>↺</button>}
                           <button onClick={() => setEditSess(d.session)} style={{ background: '#1e1e1e', border: 'none', color: '#888', padding: '6px 12px', borderRadius: 6, fontSize: 11, cursor: 'pointer', fontFamily: "'DM Mono', monospace", letterSpacing: 1 }}>EDIT</button>
                         </div>
                       </div>
@@ -1045,7 +1185,11 @@ export default function App() {
         {[['log', IconPlus, 'LOG'], ['history', IconList, 'HISTORY'], ['trends', IconBars, 'TRENDS'], ['progress', IconTrending, 'PROGRESS']].map(([k, Ic, label]) => {
           const active = view === k
           return (
-            <button key={k} onClick={() => setView(k)} style={{ flex: 1, background: 'none', border: 'none', color: active ? '#fff' : '#666', padding: '14px 0 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, minHeight: 60, position: 'relative' }}>
+            <button key={k} onClick={() => {
+              // Opening an empty Log after midnight (app left open) should default to today.
+              if (k === 'log' && !pending.length && view !== 'log') { setFormDate(todayStr()); setFormGym(gymForDate(todayStr())) }
+              setView(k)
+            }} style={{ flex: 1, background: 'none', border: 'none', color: active ? '#fff' : '#666', padding: '14px 0 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, minHeight: 60, position: 'relative' }}>
               <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: active ? '#fff' : '#5a5a5a', transition: 'color .15s' }}><Ic size={23} w={active ? 2.5 : 2} /></span>
               <span style={{ fontSize: 10, letterSpacing: 2, fontFamily: "'DM Mono', monospace", fontWeight: active ? 600 : 400, color: active ? '#fff' : '#666' }}>{label}</span>
               {active && <span style={{ position: 'absolute', bottom: 4, width: 28, height: 2, background: '#fff', borderRadius: 1, animation: 'accentSlide .3s cubic-bezier(.2,0,0,1) both' }} />}
