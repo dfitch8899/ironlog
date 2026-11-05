@@ -85,6 +85,36 @@ function analyzeOverload(data) {
   return { label: 'PLATEAU', color: '#f59e0b', detail: `no change in your top set over last ${n} sessions` }
 }
 
+// ── in-app dialogs ────────────────────────────────────────────────────────
+// Native confirm()/alert() are unreliable on iPhone: once Safari's "prevent this page
+// from creating additional dialogs" is ticked (or in some home-screen / in-app browsers)
+// confirm() silently returns false, so actions like RESET and DELETE did nothing.
+// ask() renders our own sheet instead and resolves true/false.
+let openDialog = null
+export function ask(message, { ok = 'CONFIRM', cancel = 'CANCEL', danger = false } = {}) {
+  if (!openDialog) return Promise.resolve(window.confirm(message))
+  return new Promise(resolve => openDialog({ message, ok, cancel, danger, resolve }))
+}
+const tell = message => ask(message, { ok: 'OK', cancel: null })
+
+export function DialogHost() {
+  const [d, setD] = useState(null)
+  useEffect(() => { openDialog = setD; return () => { openDialog = null } }, [])
+  if (!d) return null
+  const done = v => { setD(null); d.resolve(v) }
+  return (
+    <div onClick={() => done(false)} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.66)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', fontFamily: "'DM Mono', monospace", animation: 'fadeIn .15s ease' }}>
+      <div role="dialog" aria-modal="true" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 480, background: '#121212', borderTop: '1px solid #262626', borderRadius: '18px 18px 0 0', padding: '22px 16px calc(env(safe-area-inset-bottom, 0px) + 16px)', boxShadow: '0 -12px 40px rgba(0,0,0,0.6)' }}>
+        <div style={{ fontSize: 14, color: '#e0e0e0', lineHeight: 1.6, whiteSpace: 'pre-line', marginBottom: 18 }}>{d.message}</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {d.cancel && <button onClick={() => done(false)} style={{ flex: 1, background: '#1a1a1a', border: '1px solid #2a2a2a', color: '#aaa', padding: '15px', borderRadius: 12, fontSize: 13, letterSpacing: 1.5, fontWeight: 600, fontFamily: "'DM Mono', monospace" }}>{d.cancel}</button>}
+          <button autoFocus onClick={() => done(true)} style={{ flex: 1.4, background: d.danger ? '#ef4444' : '#fff', border: 'none', color: d.danger ? '#fff' : '#000', padding: '15px', borderRadius: 12, fontSize: 13, letterSpacing: 1.5, fontWeight: 700, fontFamily: "'DM Mono', monospace" }}>{d.ok}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── icons ────────────────────────────────────────────────────────────────
 const Icon = ({ d, size = 24, w = 2.25 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -135,16 +165,16 @@ function LiftBuilder({ lift, color, day, exerciseHistory, dayExercises = [], las
   }
   const del = i => setSets(s => s.filter((_, j) => j !== i))
   const upd = (i, f, v) => setSets(s => s.map((x, j) => j === i ? { ...x, [f]: v } : x))
-  const go = () => {
-    if (!name.trim()) return alert('Enter exercise name')
+  const go = async () => {
+    if (!name.trim()) return tell('Enter an exercise name.')
     const filled = sets.filter(s => s.reps !== '' && s.weight !== '' && +s.reps > 0 && +s.weight >= 0)
-    if (!filled.length) return alert('Add at least one complete set')
+    if (!filled.length) return tell('Add at least one complete set (weight and reps).')
     const clean = filled.map(s => ({ weight: +s.weight, reps: +s.reps }))
     // Typo guard: a top set wildly off from last time (300 vs 30) is usually a fat finger.
     const prevTop = prev ? bestSet(prev.lift).weight : 0
     const newTop = bestSet({ sets: clean }).weight
     if (prevTop > 0 && Math.abs(newTop - prevTop) >= 20 && (newTop >= prevTop * 1.75 || newTop <= prevTop * 0.5)) {
-      if (!confirm(`Double-check: top set is ${newTop} lb, last time was ${prevTop} lb.\n\nSave anyway?`)) return
+      if (!await ask(`Double-check: top set is ${newTop} lb, last time was ${prevTop} lb.\n\nSave anyway?`, { ok: 'SAVE ANYWAY', cancel: 'FIX IT' })) return
     }
     // Keep extra fields (e.g. the trend-reset marker) when editing the same exercise.
     const keep = lift && eqEx(lift.exercise, name) ? lift : {}
@@ -263,7 +293,7 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
   // "Last time" = the occurrence before this session, not this session (or a later one).
   const lastBefore = useCallback(n => lastLiftFor(n, session), [lastLiftFor, session])
   const dirty = date !== session.date || day !== session.day || gym !== gymOf(session) || JSON.stringify(lifts) !== JSON.stringify(session.lifts)
-  const close = () => { if (!dirty || confirm('Discard unsaved changes?')) onClose() }
+  const close = async () => { if (!dirty || await ask('Discard unsaved changes?', { ok: 'DISCARD', danger: true })) onClose() }
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#090909', zIndex: 100, overflowY: 'auto', maxWidth: 480, margin: '0 auto', fontFamily: "'DM Mono', monospace", paddingBottom: 120 }}>
@@ -318,7 +348,7 @@ function SessionEditor({ session, exerciseHistory, exercisesByDay, lastLiftFor, 
       </div>
       {!addingNew && editIdx === null && (
         <div style={{ position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', width: '100%', maxWidth: 480, padding: '12px 16px calc(env(safe-area-inset-bottom, 0px) + 16px)', background: '#0d0d0d', borderTop: '1px solid #161616' }}>
-          <button onClick={() => lifts.length ? onSave({ ...session, date, day, gym, lifts }) : alert('A session needs at least one lift — delete it from History instead.')} style={{ width: '100%', background: 'linear-gradient(180deg,#ffffff 0%,#e8e8e8 100%)', border: 'none', color: '#000', padding: '18px', borderRadius: 14, fontSize: 13, letterSpacing: 3, cursor: 'pointer', fontWeight: 700, fontFamily: "'DM Mono', monospace", boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 4px 16px rgba(0,0,0,0.5), 0 1px 0 rgba(0,0,0,0.2)' }}>SAVE CHANGES →</button>
+          <button onClick={() => lifts.length ? onSave({ ...session, date, day, gym, lifts }) : tell('A session needs at least one lift — delete it from History instead.')} style={{ width: '100%', background: 'linear-gradient(180deg,#ffffff 0%,#e8e8e8 100%)', border: 'none', color: '#000', padding: '18px', borderRadius: 14, fontSize: 13, letterSpacing: 3, cursor: 'pointer', fontWeight: 700, fontFamily: "'DM Mono', monospace", boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6), 0 4px 16px rgba(0,0,0,0.5), 0 1px 0 rgba(0,0,0,0.2)' }}>SAVE CHANGES →</button>
         </div>
       )}
     </div>
@@ -689,11 +719,17 @@ export default function App() {
       await dbWrite(sorted)
       setStatus('ready')
       return sorted
-    } catch {
+    } catch (e) {
+      console.error('[ironlog] save failed', e)
       sessionsRef.current = previous
       setSessions(previous)
       setStatus('ready')
-      showFlash('Save failed — try again', 'err')
+      const why = String(e?.code || e?.message || '').toLowerCase()
+      showFlash(
+        why.includes('permission') ? 'Save blocked: permission denied — sign out & back in'
+        : why.includes('network') || !navigator.onLine ? 'Save failed: offline — try again'
+        : `Save failed${e?.code ? ` (${e.code})` : e?.message ? `: ${e.message.slice(0, 60)}` : ''}`,
+        'err')
       return null
     }
   }, [showFlash])
@@ -726,7 +762,7 @@ export default function App() {
 
   const deleteSession = async id => {
     const gone = sessions.find(s => s.id === id)
-    if (!gone || !confirm('Delete this session?')) return
+    if (!gone || !await ask(`Delete ${gone.day} · ${fmtF(gone.date)}?`, { ok: 'DELETE', danger: true })) return
     const result = await commitSessions(sessions.filter(s => s.id !== id))
     if (result) {
       if (expandedId === id) setExpandedId(null)
@@ -762,8 +798,8 @@ export default function App() {
       undoable ? { label: 'UNDO', fn: () => setTrendBaseline(exercise, prevId, { undoable: false }) } : null)
   }
 
-  const resetTrendFrom = (exercise, session) => {
-    if (!confirm(`Start ${exercise} trends fresh from ${fmt(session.date)}?\n\nEarlier sessions stay in History and on the graph — they just won't count toward PRs, UP/DOWN or the overload verdict.`)) return
+  const resetTrendFrom = async (exercise, session) => {
+    if (!await ask(`Start ${exercise} trends fresh from ${fmt(session.date)}?\n\nEarlier sessions stay in History and on the graph — they just won't count toward PRs, UP/DOWN or the overload verdict.`, { ok: '↺ RESET' })) return
     setTrendBaseline(exercise, session.id)
   }
 
