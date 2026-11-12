@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
-import { dbRead, dbWrite, dbSubscribe, isConfigured, subscribeAuth, signInWithGoogle, signOutUser } from './firebase.js'
+import { dbRead, dbPutSession, dbRemoveSession, dbPatch, keyOf, dbSubscribe, isConfigured, subscribeAuth, signInWithGoogle, signOutUser } from './firebase.js'
 
 // ── constants ─────────────────────────────────────────────────────────────
 const SPLIT_DAYS = ['Push', 'Pull', 'Legs', 'Forearms/Abs', 'Upper', 'Lower']
@@ -169,6 +169,9 @@ function LiftBuilder({ lift, color, day, exerciseHistory, dayExercises = [], las
     if (!name.trim()) return tell('Enter an exercise name.')
     const filled = sets.filter(s => s.reps !== '' && s.weight !== '' && +s.reps > 0 && +s.weight >= 0)
     if (!filled.length) return tell('Add at least one complete set (weight and reps).')
+    // Never drop a half-filled set silently — that looked like "only half my lifts saved".
+    const partial = sets.filter(s => (s.reps !== '' || s.weight !== '') && !filled.includes(s))
+    if (partial.length && !await ask(`${partial.length} set${partial.length > 1 ? 's are' : ' is'} missing weight or reps and won’t be saved.\n\n(Use 0 for bodyweight.)`, { ok: 'SAVE WITHOUT', cancel: 'GO BACK' })) return
     const clean = filled.map(s => ({ weight: +s.weight, reps: +s.reps }))
     // Typo guard: a top set wildly off from last time (300 vs 30) is usually a fat finger.
     const prevTop = prev ? bestSet(prev.lift).weight : 0
@@ -709,14 +712,16 @@ export default function App() {
     [exerciseProgress, trendFilter]
   )
 
-  const commitSessions = useCallback(async data => {
+  // Optimistically show `data`, then run `write` — which must change ONLY the
+  // session(s) involved (never re-upload the whole list; see firebase.js).
+  const commitSessions = useCallback(async (data, write) => {
     const sorted = sortS(data)
     const previous = sessionsRef.current
     sessionsRef.current = sorted
     setSessions(sorted)
     setStatus('saving')
     try {
-      await dbWrite(sorted)
+      await write()
       setStatus('ready')
       return sorted
     } catch (e) {
@@ -736,7 +741,8 @@ export default function App() {
 
   const saveSession = async ({ goToHistory = false } = {}) => {
     if (!pending.length) return showFlash('Add at least one lift', 'err')
-    const s = { id: Date.now(), date: formDate, day: formDay, gym: formGym, lifts: pending }
+    const id = Date.now()
+    const s = { id, _key: String(id), date: formDate, day: formDay, gym: formGym, lifts: pending }
     // Which lifts beat their best since the last reset? (Same weight-then-reps rule as prMap.)
     const prs = pending.filter(l => {
       const k = exKey(l.exercise)
@@ -746,7 +752,7 @@ export default function App() {
       const top = hist.reduce((m, e) => { const x = bestSet(e.lift); return (x.weight > m.weight || (x.weight === m.weight && x.reps > m.reps)) ? x : m }, { weight: 0, reps: 0 })
       return b.weight > top.weight || (b.weight === top.weight && b.reps > top.reps)
     }).map(l => l.exercise).filter((n, i, a) => a.findIndex(m => eqEx(m, n)) === i)
-    const result = await commitSessions([s, ...sessions])
+    const result = await commitSessions([s, ...sessions], () => dbPutSession(s))
     if (result) {
       vibrate(prs.length ? [20, 60, 40] : 20)
       setPending([]); setAddingLift(false); setEditPendIdx(null)
@@ -756,19 +762,19 @@ export default function App() {
   }
 
   const updateSession = async updated => {
-    const result = await commitSessions(sessions.map(s => s.id === updated.id ? updated : s))
+    const result = await commitSessions(sessions.map(s => s.id === updated.id ? updated : s), () => dbPutSession(updated))
     if (result) { setEditSess(null); showFlash('Session updated!') }
   }
 
   const deleteSession = async id => {
     const gone = sessions.find(s => s.id === id)
     if (!gone || !await ask(`Delete ${gone.day} · ${fmtF(gone.date)}?`, { ok: 'DELETE', danger: true })) return
-    const result = await commitSessions(sessions.filter(s => s.id !== id))
+    const result = await commitSessions(sessions.filter(s => s.id !== id), () => dbRemoveSession(gone))
     if (result) {
       if (expandedId === id) setExpandedId(null)
       showFlash('Session deleted', 'ok', {
         label: 'UNDO',
-        fn: () => commitSessions([gone, ...sessionsRef.current.filter(s => s.id !== gone.id)]).then(r => r && showFlash('Restored')),
+        fn: () => commitSessions([gone, ...sessionsRef.current.filter(s => s.id !== gone.id)], () => dbPutSession(gone)).then(r => r && showFlash('Restored')),
       })
     }
   }
@@ -778,20 +784,22 @@ export default function App() {
   const setTrendBaseline = async (exercise, sessionId, { undoable = true } = {}) => {
     const k = exKey(exercise)
     const prevId = baselineMap[k]?.id ?? null
+    const paths = {}   // just the flag fields, e.g. "1762…/lifts/2/trendStart": true | null
     const next = sessionsRef.current.map(s => {
       let changed = false
-      const lifts = s.lifts.map(l => {
+      const lifts = s.lifts.map((l, i) => {
         if (exKey(l.exercise) !== k) return l
         const want = s.id === sessionId
         if (!!l[TREND_FLAG] === want) return l
         changed = true
+        paths[`${keyOf(s)}/lifts/${i}/${TREND_FLAG}`] = want ? true : null
         if (want) return { ...l, [TREND_FLAG]: true }
         const { [TREND_FLAG]: _drop, ...rest } = l   // RTDB rejects undefined values, so delete the key
         return rest
       })
       return changed ? { ...s, lifts } : s
     })
-    const result = await commitSessions(next)
+    const result = await commitSessions(next, () => dbPatch(paths))
     if (!result) return
     vibrate(15)
     showFlash(sessionId ? `${exercise} trends reset` : `${exercise} reset removed`, 'ok',
@@ -905,8 +913,8 @@ export default function App() {
 
       <div style={{ padding: '20px 16px 0' }}>
 
-        {view === 'log' && (
-          <>
+        {/* Log stays mounted (just hidden) so a half-entered lift survives a quick look at another tab. */}
+        <div style={{ display: view === 'log' ? 'block' : 'none' }}>
             <input type="date" value={formDate} onChange={e => { setFormDate(e.target.value); setFormGym(gymForDate(e.target.value)) }} style={{ ...IS, color: '#888', marginBottom: 12 }} />
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
               {GYMS.map(g => {
@@ -968,8 +976,7 @@ export default function App() {
                 </button>
               </div>
             )}
-          </>
-        )}
+        </div>
 
         {view === 'history' && (
           <>

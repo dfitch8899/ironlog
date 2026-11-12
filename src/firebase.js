@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app'
-import { getDatabase, ref, get, set, onValue } from 'firebase/database'
+import { getDatabase, ref, get, set, update, remove, onValue } from 'firebase/database'
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth'
 
 // Replaced with real values after `firebase apps:sdkconfig`
@@ -56,28 +56,59 @@ export function signOutUser() {
 // ── Data ──────────────────────────────────────────────────────────────────
 // These require an authenticated, authorized user once the locked-down
 // security rules are deployed — only ever call them after sign-in.
-// Firebase RTDB serves a contiguous 0-indexed array as a JS array, but a
-// sparse/edited one as an object keyed by index. Coerce both to an array so
-// real data is never mistaken for "empty" (which previously triggered a
-// destructive SEED overwrite).
-function toSessionsArray(val) {
-  if (Array.isArray(val)) return val
-  if (val && typeof val === 'object') return Object.values(val)
-  return []
+//
+// Every write touches ONLY the session(s) it changes (sessions/<key>). The old
+// approach re-wrote the whole `sessions` list from the app's in-memory copy, so
+// any stale copy (a second tab, the home-screen app vs. Safari, a phone waking
+// up before it re-synced) silently overwrote newer data — lifts saved earlier
+// would vanish. Each session remembers its DB key in `_key` (never stored).
+//
+// Legacy data is a 0-indexed array (keys "0","1",…); new sessions are keyed by
+// their id. Both live side by side under `sessions`, so no migration is needed.
+const toList = v => Array.isArray(v) ? v.filter(x => x != null) : (v && typeof v === 'object' ? Object.values(v) : [])
+
+function snapToSessions(snap) {
+  const out = []
+  snap.forEach(child => {
+    const v = child.val()
+    if (!v || typeof v !== 'object') return
+    // RTDB returns a sparse list as an object keyed by index — coerce back to arrays.
+    const lifts = toList(v.lifts).filter(l => l && typeof l.exercise === 'string').map(l => ({ ...l, sets: toList(l.sets) }))
+    out.push({ ...v, lifts, _key: child.key })
+  })
+  return out
 }
+
+// Strip client-only fields; RTDB also rejects `undefined` values anywhere.
+function toStored(session) {
+  const { _key, ...rest } = session
+  return JSON.parse(JSON.stringify(rest))
+}
+
+export const keyOf = s => s._key || String(s.id)
 
 export async function dbRead() {
-  const snap = await get(ref(db(), SESSIONS_PATH))
-  return toSessionsArray(snap.val())
+  return snapToSessions(await get(ref(db(), SESSIONS_PATH)))
 }
 
-export async function dbWrite(sessions) {
-  await set(ref(db(), SESSIONS_PATH), sessions)
+// Create or replace one session.
+export function dbPutSession(session) {
+  return set(ref(db(), `${SESSIONS_PATH}/${keyOf(session)}`), toStored(session))
+}
+
+export function dbRemoveSession(session) {
+  return remove(ref(db(), `${SESSIONS_PATH}/${keyOf(session)}`))
+}
+
+// Atomic multi-path patch, paths relative to `sessions` (value null deletes).
+export function dbPatch(paths) {
+  if (!Object.keys(paths).length) return Promise.resolve()
+  return update(ref(db(), SESSIONS_PATH), paths)
 }
 
 // onError fires on permission-denied / network failure so the UI can react
 // immediately instead of waiting for a fallback timeout.
 export function dbSubscribe(cb, onError) {
   const r = ref(db(), SESSIONS_PATH)
-  return onValue(r, snap => cb(toSessionsArray(snap.val())), onError)
+  return onValue(r, snap => cb(snapToSessions(snap)), onError)
 }
